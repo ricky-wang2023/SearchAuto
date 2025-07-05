@@ -1,6 +1,6 @@
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from docx import Document
 import PyPDF2
 import pandas as pd
@@ -79,6 +79,9 @@ def extract_file_content(file_path):
         if file_path.endswith('.txt'):
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 return f.read()
+        elif file_path.endswith('.md'):
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
         elif file_path.endswith('.docx'):
             doc = Document(file_path)
             return '\n'.join([para.text for para in doc.paragraphs])
@@ -124,7 +127,7 @@ def build_index_all():
                         indexing_in_progress = False
                         return
                     file_path = os.path.join(root, file)
-                    if file.endswith(('.txt', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
+                    if file.endswith(('.txt', '.md', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
                         mtime = os.path.getmtime(file_path)
                         content = extract_file_content(file_path)
                         c.execute('INSERT INTO file_index (file_path, file_type, mtime, content, root_path) VALUES (?, ?, ?, ?, ?)',
@@ -157,7 +160,7 @@ def update_index_all():
                         indexing_in_progress = False
                         return
                     file_path = os.path.join(root, file)
-                    if file.endswith(('.txt', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
+                    if file.endswith(('.txt', '.md', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
                         mtime = os.path.getmtime(file_path)
                         seen.add((file_path, root_path))
                         if (file_path, root_path) not in indexed:
@@ -218,6 +221,23 @@ def search_txt(file_path, keyword, results):
                     })
     except Exception as e:
         print(f"Error reading TXT {file_path}: {e}")
+
+def search_md(file_path, keyword, results):
+    global search_cancelled
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for i, line in enumerate(f, start=1):
+                if search_cancelled:
+                    return
+                if keyword.lower() in line.lower():
+                    results.append({
+                        "File Path": file_path,
+                        "File Type": "MD",
+                        "Location": f"Line {i}",
+                        "Content": line.strip()
+                    })
+    except Exception as e:
+        print(f"Error reading MD {file_path}: {e}")
 
 def search_docx(file_path, keyword, results):
     global search_cancelled
@@ -281,6 +301,8 @@ def search_folder(folder_path, keyword, results):
             file_path = os.path.join(root, file)
             if file.endswith('.txt'):
                 search_txt(file_path, keyword, results)
+            elif file.endswith('.md'):
+                search_md(file_path, keyword, results)
             elif file.endswith('.docx'):
                 search_docx(file_path, keyword, results)
             elif file.endswith('.pdf'):
@@ -428,70 +450,95 @@ def show_results(results):
         header_frame.pack(fill="x", padx=5, pady=(5,0))
         
         tk.Label(header_frame, text="File Type", font=("Arial", 10, "bold"), bg="#f0f0f0", width=8).pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="File Path", font=("Arial", 10, "bold"), bg="#f0f0f0", width=50).pack(side="left", padx=5, pady=5)
+        tk.Label(header_frame, text="File Path", font=("Arial", 10, "bold"), bg="#f0f0f0", width=90, anchor="w").pack(side="left", padx=5, pady=5, fill="x", expand=True)
         tk.Label(header_frame, text="Location", font=("Arial", 10, "bold"), bg="#f0f0f0", width=15).pack(side="left", padx=5, pady=5)
         tk.Label(header_frame, text="Actions", font=("Arial", 10, "bold"), bg="#f0f0f0", width=15).pack(side="left", padx=5, pady=5)
         
+        # Tooltip for file path
+        tooltip = tk.Toplevel(root)
+        tooltip.withdraw()
+        tooltip.overrideredirect(True)
+        tooltip_label = tk.Label(tooltip, text="", background="#ffffe0", relief="solid", borderwidth=1, font=("Arial", 9))
+        tooltip_label.pack(ipadx=1)
+        
+        def show_tooltip(event, text):
+            tooltip_label.config(text=text)
+            tooltip.deiconify()
+            tooltip.lift()
+            x = event.widget.winfo_rootx() + event.x + 20
+            y = event.widget.winfo_rooty() + event.y + 10
+            tooltip.geometry(f"+{x}+{y}")
+        def hide_tooltip(event):
+            tooltip.withdraw()
+        
         # Display results with alternating row colors
         for idx, res in enumerate(results):
-            # Create result row frame
             row_bg = "#ffffff" if idx % 2 == 0 else "#f8f8f8"
             result_frame = tk.Frame(results_inner_frame, bg=row_bg, relief="flat", bd=1)
             result_frame.pack(fill="x", padx=5, pady=1)
             
-            # File type with color coding
             file_type_colors = {
-                "TXT": "#4CAF50",    # Green
-                "DOCX": "#2196F3",   # Blue
-                "PDF": "#FF5722",     # Red
-                "XLSX": "#FF9800"     # Orange
+                "TXT": "#4CAF50",
+                "DOCX": "#2196F3",
+                "PDF": "#FF5722",
+                "XLSX": "#FF9800",
+                "MD": "#9C27B0"
             }
             type_color = file_type_colors.get(res['File Type'], "#666666")
             tk.Label(result_frame, text=res['File Type'], font=("Arial", 9, "bold"), 
                     fg="white", bg=type_color, width=8, relief="raised").pack(side="left", padx=5, pady=5)
             
-            # File path with better formatting
             path_text = res['File Path']
-            if len(path_text) > 60:
-                path_text = "..." + path_text[-57:]
-            tk.Label(result_frame, text=path_text, font=("Arial", 9), 
-                    bg=row_bg, anchor="w", width=50).pack(side="left", padx=5, pady=5)
+            display_path = path_text
+            if len(path_text) > 90:
+                display_path = "..." + path_text[-87:]
+            path_label = tk.Label(result_frame, text=display_path, font=("Arial", 9), 
+                                  bg=row_bg, anchor="w", width=90)
+            path_label.pack(side="left", padx=5, pady=5, fill="x", expand=True)
+            path_label.bind("<Enter>", lambda e, t=path_text: show_tooltip(e, t))
+            path_label.bind("<Leave>", hide_tooltip)
             
-            # Location
             tk.Label(result_frame, text=res['Location'], font=("Arial", 9), 
                     bg=row_bg, anchor="w", width=15).pack(side="left", padx=5, pady=5)
             
-            # Action buttons frame
             actions_frame = tk.Frame(result_frame, bg=row_bg)
             actions_frame.pack(side="left", padx=5, pady=5)
-            
-            # Open File button
             tk.Button(actions_frame, text="📄 Open", command=lambda p=res['File Path']: open_file(p), 
                      bg="#4CAF50", fg="white", font=("Arial", 8, "bold"), 
                      relief="flat", bd=0, padx=8, pady=2).pack(side="left", padx=2)
-            
-            # Open Folder button
             tk.Button(actions_frame, text="📁 Folder", command=lambda p=res['File Path']: open_folder_location(p), 
                      bg="#2196F3", fg="white", font=("Arial", 8, "bold"), 
                      relief="flat", bd=0, padx=8, pady=2).pack(side="left", padx=2)
         
-        # Add a summary at the bottom
         summary_frame = tk.Frame(results_inner_frame, bg="#e8f5e8", relief="groove", bd=1)
         summary_frame.pack(fill="x", padx=5, pady=(5,0))
         tk.Label(summary_frame, text=f"✓ Found {len(results)} match{'es' if len(results) != 1 else ''}", 
                 font=("Arial", 10, "bold"), fg="#2E7D32", bg="#e8f5e8").pack(pady=5)
-        
         messagebox.showinfo("Search Complete", f"Found {len(results)} matches.")
     else:
-        # Show "no results" message in a styled frame
         no_results_frame = tk.Frame(results_inner_frame, bg="#fff3cd", relief="groove", bd=2)
         no_results_frame.pack(fill="x", padx=20, pady=20)
         tk.Label(no_results_frame, text="🔍 No matches found", 
                 font=("Arial", 12, "bold"), fg="#856404", bg="#fff3cd").pack(pady=10)
         tk.Label(no_results_frame, text="Try different keywords or check your file types", 
                 font=("Arial", 9), fg="#856404", bg="#fff3cd").pack(pady=(0,10))
-        
         messagebox.showinfo("Search Complete", "No matches found.")
+
+# Helper functions for context menu actions
+
+def open_selected_file(tree):
+    selection = tree.selection()
+    if selection:
+        item = tree.item(selection[0])
+        file_path = item['values'][1]
+        open_file(file_path)
+
+def open_selected_folder(tree):
+    selection = tree.selection()
+    if selection:
+        item = tree.item(selection[0])
+        file_path = item['values'][1]
+        open_folder_location(file_path)
 
 def cancel_search():
     global search_cancelled
@@ -523,6 +570,13 @@ def start_ai_search():
     
     results.clear()
     ai_results = ai_search(keyword, n_results=20)
+    
+    # Filter by selected roots
+    selected_roots = get_selected_roots()
+    def is_in_selected_roots(path):
+        import os
+        return any(os.path.abspath(path).startswith(os.path.abspath(root)) for root in selected_roots)
+    ai_results = [r for r in ai_results if is_in_selected_roots(r['file_path'])]
     
     # Convert AI results to standard format
     for result in ai_results:

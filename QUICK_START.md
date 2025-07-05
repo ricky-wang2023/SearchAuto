@@ -30,6 +30,12 @@ python doc_to_docx_converter.py
 python markdown_converter.py
 ```
 
+### Step 4: Try the Integrated Application (Recommended)
+```bash
+# All-in-one tool with search, convert, and organize features
+run_integrated.bat
+```
+
 ## 📋 What Each Tool Does
 
 ### 🔍 SearchAuto (Main Tool)
@@ -43,6 +49,12 @@ python markdown_converter.py
 - **Markdown Converter**: Convert DOCX, PDF, TXT to Markdown format
 - **Batch processing** for multiple files
 - **Chinese character support**
+
+### 🚀 Integrated Application (All-in-One)
+- **Search Tab**: Full SearchAuto functionality with live, index, and AI search
+- **Convert Tab**: DOC to DOCX and Markdown conversion with progress tracking
+- **Organize Tab**: Markdown collection management with auto-indexing and tag extraction
+- **Seamless Workflow**: Switch between search, convert, and organize without closing the app
 
 ## 🎯 Common Use Cases
 
@@ -80,7 +92,9 @@ python markdown_converter.py
 ```
 SearchAuto/
 ├── searchAuto.py              # Main search application
+├── searchauto_integrated.py   # All-in-one integrated app
 ├── unified_converter.py       # All-in-one converter
+├── run_integrated.bat        # Quick start for integrated app
 ├── run_search.bat            # Quick start for search
 ├── run_converter.bat         # Quick start for converter
 ├── install_all.bat           # Complete installation

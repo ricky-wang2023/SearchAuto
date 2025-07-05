@@ -167,6 +167,21 @@ python unified_converter.py
 - Shared progress tracking and status updates
 - Professional UI with consistent interface
 
+#### 🚀 Integrated Application (All-in-One)
+```bash
+python searchauto_integrated.py
+# or
+run_integrated.bat
+```
+
+**Features:**
+- **Search Tab**: Full SearchAuto functionality with live, index, and AI search
+- **Convert Tab**: DOC to DOCX and Markdown conversion with progress tracking
+- **Organize Tab**: Markdown collection management with auto-indexing and tag extraction
+- **Seamless Workflow**: Switch between search, convert, and organize without closing the app
+- **Unified Database**: All tools share the same file index and AI models
+- **Professional UI**: Tabbed interface with consistent design across all features
+
 ### Understanding Search Results
 
 Each result shows:
@@ -250,18 +265,23 @@ idle_threshold = 30 * 60             # Wait 30 minutes of inactivity
 
 ```
 SearchAuto/
-├── searchAuto.py              # Main search application
-├── ai_search.py               # AI search engine module
-├── ai_search_light.py         # Lightweight AI search (alternative)
-├── doc_to_docx_converter.py   # DOC to DOCX converter (GUI)
-├── doc_converter_cli.py       # DOC to DOCX converter (CLI)
-├── markdown_converter.py      # Markdown converter (GUI)
-├── markdown_converter_cli.py  # Markdown converter (CLI)
-├── unified_converter.py       # All-in-one converter tool
-├── file_index.db              # SQLite keyword index database (created automatically)
-├── ai_search_db/              # ChromaDB AI index directory (created automatically)
-├── README.md                  # This documentation
-└── requirements.txt           # Python dependencies
+├── searchAuto.py                  # Main search application
+├── searchauto_integrated.py       # Integrated app (search + convert + organize)
+├── ai_search.py                   # AI search engine module
+├── ai_search_light.py             # Lightweight AI search (alternative)
+├── doc_to_docx_converter.py      # DOC to DOCX converter (GUI)
+├── doc_converter_cli.py          # DOC to DOCX converter (CLI)
+├── markdown_converter.py         # Markdown converter (GUI)
+├── markdown_converter_cli.py     # Markdown converter (CLI)
+├── unified_converter.py          # All-in-one converter tool
+├── run_integrated.bat            # Quick start for integrated app
+├── run_search.bat                # Quick start for search tool
+├── run_converter.bat             # Quick start for converter
+├── install_all.bat               # Complete installation
+├── file_index.db                 # SQLite keyword index database (created automatically)
+├── ai_search_db/                 # ChromaDB AI index directory (created automatically)
+├── README.md                     # This documentation
+└── requirements.txt              # Python dependencies
 ```
 
 ## 🔒 Security & Privacy
