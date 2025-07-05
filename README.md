@@ -1,6 +1,6 @@
 # SearchAuto - Universal File Content Search Tool
 
-A powerful, multi-root file content search application with a Tkinter GUI that supports indexing and searching across multiple file types including text files, DOCX documents, PDF files, and Excel spreadsheets. Now enhanced with **AI-powered semantic search** capabilities!
+A powerful, multi-root file content search application with a Tkinter GUI that supports indexing and searching across multiple file types including text files, DOCX documents, PDF files, and Excel spreadsheets. Now enhanced with **AI-powered semantic search** capabilities and **file conversion tools**!
 
 ## 🚀 Features
 
@@ -13,6 +13,14 @@ A powerful, multi-root file content search application with a Tkinter GUI that s
   - **AI Search**: Advanced semantic search with document understanding
 - **Smart Indexing**: Automatic background updates when system is idle
 - **Thread-Safe**: Database locking prevents conflicts during concurrent operations
+
+### File Conversion Tools
+- **DOC to DOCX Converter**: Convert legacy .doc files to modern .docx format
+- **Markdown Converter**: Convert DOCX, PDF, and TXT files to Markdown format
+- **Unified Converter**: All-in-one tool with both conversion features
+- **Multiple Conversion Methods**: LibreOffice, Microsoft Word, and python-docx support
+- **Batch Processing**: Convert multiple files at once
+- **Chinese Character Support**: Full Unicode support for international documents
 
 ### User Interface
 - **Intuitive GUI**: Clean, organized interface with separate sections for different functions
@@ -27,7 +35,7 @@ A powerful, multi-root file content search application with a Tkinter GUI that s
 - **AI-Powered Semantic Search**: Understands meaning, not just keywords
 - **Document Summarization**: Auto-generates summaries of long documents
 - **Enhanced Query Processing**: Automatically adds synonyms and related terms
-- **Multi-language Support**: Works across different languages
+- **Multi-language Support**: Works across different languages including Chinese
 - **Idle-Based Updates**: Automatic index updates only when system is inactive for 30+ minutes
 - **Activity Tracking**: Monitors user interactions to determine optimal update times
 - **Conflict Prevention**: Prevents database locking issues with comprehensive thread safety
@@ -47,6 +55,7 @@ pip install sentence-transformers
 pip install chromadb
 pip install torch
 pip install transformers
+pip install pywin32
 ```
 
 ### System Requirements
@@ -55,6 +64,8 @@ pip install transformers
 - Sufficient disk space for index database (~2GB for AI models)
 - Read access to target directories
 - Internet connection for initial AI model download
+- Microsoft Word (optional, for DOC to DOCX conversion)
+- LibreOffice (optional, for better DOC to DOCX conversion)
 
 ## 🛠️ Installation
 
@@ -71,46 +82,90 @@ pip install transformers
 
 ## 📖 Usage Guide
 
-### Initial Setup
+### SearchAuto Main Application
 
+#### Initial Setup
 1. **Launch the Application**: Run `python searchAuto.py`
 2. **Add Root Directories**: Click "Add Root" to select folders to index
 3. **Build Regular Index**: Click "Rebuild Index" to create the keyword index
 4. **Build AI Index**: Click "Build AI" to create the semantic search index
 5. **Start Searching**: Use Live Search, Index Search, or AI Search
 
-### Adding Root Directories
-
+#### Adding Root Directories
 1. Click the **"Add Root"** button
 2. Select a directory from the file dialog
 3. The directory will appear in the roots list
 4. Use **Ctrl+Click** to select multiple roots for targeted searching
 
-### Managing Roots
-
+#### Managing Roots
 - **Remove Roots**: Select root(s) and click "Remove Root" (removes from index)
 - **Reorder Roots**: Select a root and use ▲/▼ buttons to change order
 - **Multi-Select**: Hold Ctrl while clicking to select multiple roots
 
-### Searching Files
+#### Searching Files
 
-#### Live Search (Real-time)
+##### Live Search (Real-time)
 - **Best for**: Quick searches, small directories, or when index is outdated
 - **Usage**: Enter keyword and click "🔍 Live Search"
 - **Pros**: Always up-to-date, no index required
 - **Cons**: Slower for large directories
 
-#### Index Search (Pre-built index)
+##### Index Search (Pre-built index)
 - **Best for**: Large directories, frequent searches, performance
 - **Usage**: Enter keyword and click "⚡ Index Search"
 - **Pros**: Very fast, supports complex queries
 - **Cons**: Requires index to be built and updated
 
-#### AI Search (Semantic search)
+##### AI Search (Semantic search)
 - **Best for**: Finding meaning, not just keywords; natural language queries
 - **Usage**: Enter natural language query and click "🤖 AI Search"
 - **Pros**: Understands context and meaning, finds related concepts, generates summaries
 - **Cons**: Requires AI index to be built, uses more resources
+
+### File Conversion Tools
+
+#### DOC to DOCX Converter
+```bash
+# GUI Version
+python doc_to_docx_converter.py
+
+# Command Line Version
+python doc_converter_cli.py "C:\Input\Folder" "C:\Output\Folder"
+```
+
+**Features:**
+- Convert legacy .doc files to modern .docx format
+- Multiple conversion methods (LibreOffice, Microsoft Word, python-docx)
+- Smart file detection (handles DOCX files disguised as DOC)
+- Chinese character support
+- Batch processing for multiple files
+
+#### Markdown Converter
+```bash
+# GUI Version
+python markdown_converter.py
+
+# Command Line Version
+python markdown_converter_cli.py "C:\Input\Folder" "C:\Output\Folder" "docx,pdf,txt"
+```
+
+**Features:**
+- Convert DOCX, PDF, and TXT files to Markdown format
+- Smart formatting detection (headings, bold, italic)
+- Multiple input format support
+- Batch processing
+- Chinese character support
+
+#### Unified Converter (Recommended)
+```bash
+python unified_converter.py
+```
+
+**Features:**
+- All-in-one tool with both DOC to DOCX and Markdown conversion
+- Tabbed interface for easy switching between conversion types
+- Shared progress tracking and status updates
+- Professional UI with consistent interface
 
 ### Understanding Search Results
 
@@ -174,6 +229,12 @@ idle_threshold = 30 * 60             # Wait 30 minutes of inactivity
 - **Permissions**: Check file and folder access permissions
 - **Path Issues**: Verify file paths don't contain special characters
 
+#### Conversion Issues
+- **DOC to DOCX**: Install LibreOffice for best results with old DOC files
+- **Microsoft Word**: Ensure Word is installed for Windows conversion
+- **Chinese Characters**: All tools support Unicode and Chinese characters
+- **Large Files**: Conversion may take time for very large documents
+
 ### Performance Tips
 
 1. **Use Index Search** for large directories
@@ -182,86 +243,63 @@ idle_threshold = 30 * 60             # Wait 30 minutes of inactivity
 4. **Keep index updated** for best performance
 5. **Close unnecessary applications** during large operations
 6. **Allow first AI run** to download models completely
+7. **Use LibreOffice** for better DOC to DOCX conversion
+8. **Batch convert** files for efficiency
 
 ## 📁 File Structure
 
 ```
 SearchAuto/
-├── searchAuto.py          # Main application file
-├── ai_search.py           # AI search engine module
-├── ai_search_light.py     # Lightweight AI search (alternative)
-├── file_index.db          # SQLite keyword index database (created automatically)
-├── ai_search_db/          # ChromaDB AI index directory (created automatically)
-├── README.md              # This documentation
-└── requirements.txt       # Python dependencies
+├── searchAuto.py              # Main search application
+├── ai_search.py               # AI search engine module
+├── ai_search_light.py         # Lightweight AI search (alternative)
+├── doc_to_docx_converter.py   # DOC to DOCX converter (GUI)
+├── doc_converter_cli.py       # DOC to DOCX converter (CLI)
+├── markdown_converter.py      # Markdown converter (GUI)
+├── markdown_converter_cli.py  # Markdown converter (CLI)
+├── unified_converter.py       # All-in-one converter tool
+├── file_index.db              # SQLite keyword index database (created automatically)
+├── ai_search_db/              # ChromaDB AI index directory (created automatically)
+├── README.md                  # This documentation
+└── requirements.txt           # Python dependencies
 ```
 
 ## 🔒 Security & Privacy
 
-- **Local Only**: All operations are performed locally
-- **No Data Collection**: No information is sent to external servers
-- **File Access**: Only reads files, never modifies them
-- **Database**: Index database contains only file paths and content excerpts
-- **AI Models**: Downloaded once and cached locally, no ongoing internet required
-- **Privacy**: All AI processing happens on your local machine
+- **Local Processing**: All file processing happens locally on your machine
+- **No Data Upload**: No files or content are uploaded to external servers
+- **AI Models**: Downloaded once and stored locally for future use
+- **Index Privacy**: All search indexes are stored locally in your project directory
 
-## 🚀 Advanced Usage
+## 🌟 Recent Updates
 
-### AI Search Examples
-Try these natural language queries with AI Search:
-- "How to fix printer problems"
-- "Budget reports for Q4"
-- "Meeting notes about project updates"
-- "Error handling procedures"
-- "Customer feedback and complaints"
+### Version 2.0 - File Conversion Tools
+- ✅ **DOC to DOCX Converter**: Convert legacy .doc files to modern .docx format
+- ✅ **Markdown Converter**: Convert DOCX, PDF, and TXT files to Markdown
+- ✅ **Unified Converter**: All-in-one tool with tabbed interface
+- ✅ **Chinese Character Support**: Full Unicode support for international documents
+- ✅ **Multiple Conversion Methods**: LibreOffice, Microsoft Word, python-docx
+- ✅ **Batch Processing**: Convert multiple files simultaneously
+- ✅ **Smart File Detection**: Automatically detects file formats
+- ✅ **Professional UI**: Clean, modern interface with progress tracking
 
-### Command Line Options
-Currently, the application runs in GUI mode only. Future versions may include command-line options.
+### Version 1.0 - Core Search Features
+- ✅ **Multi-root file indexing and search**
+- ✅ **AI-powered semantic search**
+- ✅ **Live, Index, and AI search modes**
+- ✅ **Document summarization**
+- ✅ **Multi-language support**
+- ✅ **Background indexing**
+- ✅ **Thread-safe operations**
 
-### Custom File Types
-To add support for additional file types, modify the `extract_file_content()` function in `searchAuto.py`.
+## 📞 Support
 
-### Database Maintenance
-- **Keyword Index**: Delete `file_index.db` and rebuild
-- **AI Index**: Use "🗑️ Clear AI" button or delete `ai_search_db/` directory
-- **AI Models**: Stored in `~/.cache/huggingface/`, can be deleted to free space
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+For issues, questions, or feature requests:
+1. Check the troubleshooting section above
+2. Ensure all dependencies are installed correctly
+3. Try running the conversion tools separately to isolate issues
+4. Check file permissions and paths for conversion tools
 
 ## 📄 License
 
-This project is open source. Please check the license file for details.
-
-## 🆘 Support
-
-For issues and questions:
-1. Check this README for troubleshooting
-2. Review the error messages in the application
-3. Check the console output for detailed error information
-4. Create an issue with detailed steps to reproduce the problem
-
-## 🔄 Version History
-
-### Current Version
-- Multi-root support
-- Idle-based auto-updates
-- Thread-safe database operations
-- Enhanced UI with status indicators
-- Comprehensive error handling
-
-### Planned Features
-- Command-line interface
-- Additional file format support
-- Advanced search filters
-- Export search results
-- Cloud storage integration
-
----
-
-**Note**: This application is designed for personal and organizational use. Ensure you have proper permissions to access and search the directories you add to the index. 
+This project is open source and available under the MIT License. 
