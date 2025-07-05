@@ -1,0 +1,9 @@
+# Exclude large files and build artifacts
+file_index.db
+dist/
+build/
+ai_search_db/
+__pycache__/
+*.pyc
+*.pyo
+*.exe 
