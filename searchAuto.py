@@ -29,6 +29,32 @@ except ImportError:
     AI_AVAILABLE = False
     print("AI search dependencies not available. Install with: pip install sentence-transformers chromadb torch")
 
+import webbrowser
+
+# Add tooltip support
+class ToolTip(object):
+    def __init__(self, widget):
+        self.widget = widget
+        self.tipwindow = None
+        self.text = ''
+    def showtip(self, text, x, y):
+        """Display text in tooltip window at (x, y)"""
+        self.text = text
+        if self.tipwindow or not self.text:
+            return
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = tk.Label(tw, text=self.text, justify='left',
+                         background="#ffffe0", relief='solid', borderwidth=1,
+                         font=("Arial Unicode MS", 10), wraplength=600)
+        label.pack(ipadx=1)
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
 INDEX_DB = os.path.join(os.path.dirname(__file__), 'file_index.db')
 search_cancelled = False
 indexing_in_progress = False
@@ -421,11 +447,12 @@ def show_wait_message(msg):
 def build_index_all_gui():
     global search_cancelled
     search_cancelled = False
+    status_var.set("Rebuilding index...")
     wait_win = show_wait_message("Rebuilding index, please wait...")
     t0 = time.time()
     build_index_all()
     wait_win.destroy()
-    root.after(0, lambda: messagebox.showinfo("Index", f"Index rebuilt in {time.time() - t0:.1f} seconds."))
+    root.after(0, lambda: [messagebox.showinfo("Index", f"Index rebuilt in {time.time() - t0:.1f} seconds."), status_var.set("Ready")])
 
 def update_index_all_thread():
     thread = threading.Thread(target=update_index_all_gui)
@@ -434,11 +461,12 @@ def update_index_all_thread():
 def update_index_all_gui():
     global search_cancelled
     search_cancelled = False
+    status_var.set("Updating index...")
     wait_win = show_wait_message("Updating index, please wait...")
     t0 = time.time()
     update_index_all()
     wait_win.destroy()
-    root.after(0, lambda: messagebox.showinfo("Index", f"Index updated in {time.time() - t0:.1f} seconds."))
+    root.after(0, lambda: [messagebox.showinfo("Index", f"Index updated in {time.time() - t0:.1f} seconds."), status_var.set("Ready")])
 
 def update_index_periodically():
     global search_cancelled
@@ -501,38 +529,49 @@ def start_ai_search():
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
-    
     if not AI_AVAILABLE:
         root.after(0, lambda: messagebox.showerror("AI Search Error", "AI search is not available. Please install dependencies:\npip install sentence-transformers chromadb torch"))
         return
-    
     results.clear()
     model_choice = ai_model_var.get()
-    ai_results = ai_search_dispatch(keyword, n_results=20, model_choice=model_choice)
-    
-    # Filter by selected roots
-    selected_roots = get_selected_roots()
-    def is_in_selected_roots(path):
-        import os
-        return any(os.path.abspath(path).startswith(os.path.abspath(root)) for root in selected_roots)
-    ai_results = [r for r in ai_results if is_in_selected_roots(r.get('file_path', ''))]
-    
-    # Convert AI results to standard format
-    for result in ai_results:
-        # Create enhanced content with summary if available
-        content = result.get('content', '')
-        content = content[:200] + "..." if len(content) > 200 else content
-        if result.get('summary'):
-            content = f"📝 Summary: {result['summary']}\n\n📄 Content: {content}"
-        
-        results.append({
-            "File Path": result.get('file_path', ''),
-            "File Type": result.get('file_type', ''),
-            "Location": f"🤖 AI Match (Score: {result.get('similarity_score', 0):.2f})",
-            "Content": content
-        })
-    
-    root.after(0, lambda: show_results(results))
+    status_var.set("Performing AI search...")
+    # Disable AI Search button while searching
+    for child in search_buttons_frame.winfo_children():
+        if isinstance(child, tk.Button) and getattr(child, 'cget', lambda x: None)('text') == '🤖 AI Search':
+            child.configure(state='disabled')
+    def ai_search_thread():
+        global search_cancelled
+        ai_results = ai_search_dispatch(keyword, n_results=20, model_choice=model_choice)
+        # Filter by selected roots
+        selected_roots = get_selected_roots()
+        def is_in_selected_roots(path):
+            import os
+            return any(os.path.abspath(path).startswith(os.path.abspath(root)) for root in selected_roots)
+        filtered_results = []
+        for r in ai_results:
+            if search_cancelled:
+                break
+            if is_in_selected_roots(r.get('file_path', '')):
+                filtered_results.append(r)
+        # Convert AI results to standard format
+        for result in filtered_results:
+            if search_cancelled:
+                break
+            content = result.get('content', '')
+            content = content[:200] + "..." if len(content) > 200 else content
+            if result.get('summary'):
+                content = f"📝 Summary: {result['summary']}\n\n📄 Content: {content}"
+            results.append({
+                "File Path": result.get('file_path', ''),
+                "File Type": result.get('file_type', ''),
+                "Location": f"🤖 AI Match (Score: {result.get('similarity_score', 0):.2f})",
+                "Content": content
+            })
+        # Re-enable AI Search button
+        root.after(0, lambda: [child.configure(state='normal') for child in search_buttons_frame.winfo_children() if isinstance(child, tk.Button) and getattr(child, 'cget', lambda x: None)('text') == '🤖 AI Search'])
+        if not search_cancelled:
+            root.after(0, lambda: [show_results(results), status_var.set("Ready")])
+    threading.Thread(target=ai_search_thread, daemon=True).start()
 
 def build_ai_index():
     """Build AI search index from current indexed files"""
@@ -649,11 +688,20 @@ root.configure(bg="#f5f5f5")  # Light gray background
 root.minsize(1200, 700)  # Ensure both panels are visible
 root.geometry("1400x800")  # Force initial window width for both panels
 
+# Status bar
+status_var = tk.StringVar(value="Ready")
+status_bar = tk.Label(root, textvariable=status_var, bd=1, relief=tk.SUNKEN, anchor="w", font=("Arial", 9), bg="#eeeeee")
+status_bar.grid(row=99, column=0, columnspan=2, sticky="ew")
+
 # Update layout for sidebar: Index Management on right, full height; search/results on left
 
-# Index Management panel (right, full height)
+# Index Management panel (right, now only at the top right)
 index_frame = tk.LabelFrame(root, text="⚙️ Index Management", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-index_frame.grid(row=0, column=1, rowspan=3, padx=10, pady=5, sticky="nsew")
+index_frame.grid(row=0, column=1, padx=10, pady=5, sticky="new")  # Only row=0, not rowspan=3
+
+# Remove previous ai_summary_frame placement
+# ai_summary_frame = tk.LabelFrame(root, text="AI Summary", font=("Arial", 11, "bold"), fg="#9C27B0", relief="groove", bd=2)
+# ai_summary_frame.grid(row=1, column=1, padx=10, pady=(0,5), sticky="new")
 
 # 1. Harmonize Index Management color scheme
 # After creating the three sections, set their color scheme
@@ -671,10 +719,14 @@ search_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 results_frame = tk.LabelFrame(root, text="Search Results", font=("Arial", 12, "bold"), fg="navy", relief="groove", bd=2)
 results_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 
+# AI Summary Frame (right of results, same row)
+ai_summary_frame = tk.LabelFrame(root, text="AI Summary", font=("Arial", 11, "bold"), fg="#9C27B0", relief="groove", bd=2)
+ai_summary_frame.grid(row=2, column=1, padx=10, pady=10, sticky="nsew")
+
 # Grid configuration
 root.grid_columnconfigure(0, weight=3)  # Left/main area
 root.grid_columnconfigure(1, weight=1)  # Right panel
-root.grid_rowconfigure(2, weight=1)     # Make results area expandable
+root.grid_rowconfigure(2, weight=1)     # Make results/summary area expandable
 
 # Add bundle_by_file variable if not already present
 bundle_by_file = tk.BooleanVar(value=True)
@@ -696,7 +748,7 @@ roots_content_frame = tk.Frame(roots_frame)
 roots_content_frame.pack(fill="x", expand=True, padx=5, pady=5)
 
 # Listbox on the left
-roots_listbox = tk.Listbox(roots_content_frame, width=80, height=3, selectmode=tk.MULTIPLE, font=("Arial", 9), relief="flat", bd=1)
+roots_listbox = tk.Listbox(roots_content_frame, width=80, height=8, selectmode=tk.MULTIPLE, font=("Arial", 9), relief="flat", bd=1)
 roots_listbox.pack(side="left", fill="x", expand=True, padx=(0,5))
 
 # Arrow buttons frame in the middle
@@ -772,21 +824,38 @@ for section in [regular_index_section, ai_index_section, embedding_section]:
 # Define the StringVar before creating the label
 ai_summary_var = tk.StringVar()
 # AI Summary Label
-ai_summary_label = tk.Label(index_frame, textvariable=ai_summary_var, font=("Arial", 9), fg="#9C27B0", bg="#f5f5f5", anchor="w", justify="left", wraplength=250, relief="groove", bd=1)
-ai_summary_label.pack(fill="x", padx=5, pady=(10, 0))
+ai_summary_label = tk.Label(ai_summary_frame, textvariable=ai_summary_var, font=("Arial", 9), fg="#9C27B0", bg="#f5f5f5", anchor="w", justify="left", wraplength=250, relief="groove", bd=1)
+ai_summary_label.pack(fill="x", padx=5, pady=5)
 
 # Results Frame with Treeview for locked headers
 columns = ("File Type", "File Path", "Location", "Content")
-tree = ttk.Treeview(results_frame, columns=columns, show="headings", height=20)
+results_tree_font = ("Arial Unicode MS", 10)
+
+# Create a sub-frame for the Treeview and scrollbars
+# Remove previous tree.pack and scrollbar.pack calls
+
+tree_frame = tk.Frame(results_frame)
+tree_frame.pack(fill="both", expand=True)
+
+tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=20)
 for col in columns:
     tree.heading(col, text=col)
-    tree.column(col, anchor="w", width=150 if col != "Content" else 400)
-tree.pack(side="left", fill="both", expand=True)
+    tree.column(col, anchor="w", width=200 if col != "Content" else 1000, stretch=False)
+style = ttk.Style()
+style.configure("Treeview", font=results_tree_font)
 
-# Add vertical scrollbar
-scrollbar = ttk.Scrollbar(results_frame, orient="vertical", command=tree.yview)
-tree.configure(yscrollcommand=scrollbar.set)
-scrollbar.pack(side="right", fill="y")
+tree.grid(row=0, column=0, sticky="nsw")
+
+# Add vertical and horizontal scrollbars
+scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal", command=tree.xview)
+tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+scrollbar_y.grid(row=0, column=1, sticky="ns")
+scrollbar_x.grid(row=1, column=0, sticky="ew")
+
+# Configure grid weights for proper resizing
+tree_frame.grid_rowconfigure(0, weight=1)
+tree_frame.grid_columnconfigure(0, weight=1)
 
 # Double-click to open file or folder
 def on_tree_double_click(event):
@@ -800,7 +869,19 @@ def on_tree_double_click(event):
             open_folder_location(file_path)
 tree.bind("<Double-1>", on_tree_double_click)
 
-# Update show_results to use the Treeview
+# Update show_results to truncate and clean content, and store full content for tooltip
+
+def clean_and_truncate_content(content, maxlen=200):
+    if not isinstance(content, str):
+        content = str(content)
+    content = content.replace('\n', ' ').replace('\t', ' ')
+    if len(content) > maxlen:
+        return content[:maxlen] + '...'
+    return content
+
+# Store mapping from tree item to full content for tooltip
+item_full_content = {}
+
 def show_results(results):
     tree.delete(*tree.get_children())
     keyword = keyword_entry.get() if 'keyword_entry' in globals() else ''
@@ -818,10 +899,14 @@ def show_results(results):
                 if score is not None and (prev_score is None or score > prev_score):
                     file_best[file_path] = (res, score)
         display_results = [v[0] for v in file_best.values()]
+    item_full_content.clear()
     for res in display_results:
         file_path = res.get('File Path', '')
         file_name = os.path.basename(file_path)
-        tree.insert("", "end", values=(res.get('File Type', ''), file_name, res.get('Location', ''), res.get('Content', '')), tags=(file_path,))
+        content = res.get('Content', '')
+        short_content = clean_and_truncate_content(content)
+        item_id = tree.insert("", "end", values=(res.get('File Type', ''), file_name, res.get('Location', ''), short_content), tags=(file_path,))
+        item_full_content[item_id] = content
     # AI summary logic remains unchanged
     is_ai_results = any('AI Match' in res.get('Location', '') or 'Score:' in res.get('Location', '') for res in display_results)
     if is_ai_results and AI_AVAILABLE and len(display_results) > 1:
@@ -843,6 +928,31 @@ def show_results(results):
         ai_summary_var.set("AI Summary: " + summary_text)
     else:
         ai_summary_var.set("")
+    status_var.set("Ready")
+
+# Tooltip for full content on hover
+tree_tooltip = ToolTip(tree)
+def on_tree_motion(event):
+    region = tree.identify("region", event.x, event.y)
+    if region == "cell":
+        row_id = tree.identify_row(event.y)
+        col = tree.identify_column(event.x)
+        if col == "#4" and row_id in item_full_content:
+            bbox = tree.bbox(row_id, col)
+            if bbox:
+                x, y, width, height = bbox
+                abs_x = tree.winfo_rootx() + x + width
+                abs_y = tree.winfo_rooty() + y + height // 2
+                full_content = item_full_content[row_id]
+                tree_tooltip.showtip(full_content, abs_x, abs_y)
+            else:
+                tree_tooltip.hidetip()
+        else:
+            tree_tooltip.hidetip()
+    else:
+        tree_tooltip.hidetip()
+tree.bind("<Motion>", on_tree_motion)
+tree.bind("<Leave>", lambda e: tree_tooltip.hidetip())
 
 # === Threaded Embedding Build Functions ===
 # === Embedding Build Functions ===
