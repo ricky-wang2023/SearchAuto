@@ -1,14 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('README.md', '.'), ('requirements.txt', '.'), ('ai_search.py', '.'), ('ai_search_light.py', '.'), ('check_threads.py', '.')]
+datas = [('README.md', '.'), ('requirements.txt', '.'), ('ai_search_db', '.')]
 binaries = []
-hiddenimports = ['sentence_transformers', 'transformers', 'chromadb', 'torch', 'huggingface_hub', 'numpy', 'tokenizers', 'accelerate', 'safetensors', 'regex', 'requests', 'urllib3', 'packaging', 'filelock', 'typing_extensions', 'importlib_metadata', 'zipp', 'pandas', 'openpyxl']
+hiddenimports = ['ai_search', 'sentence_transformers', 'transformers', 'chromadb', 'torch', 'torch.nn', 'torch.nn.functional', 'torch.utils.data', 'torch.cuda', 'torch.version', 'huggingface_hub', 'numpy', 'pandas', 'sklearn', 'sklearn.feature_extraction', 'sklearn.metrics', 'tokenizers', 'accelerate', 'safetensors', 'regex', 'requests', 'urllib3', 'packaging', 'filelock', 'typing_extensions', 'importlib_metadata', 'zipp', 'openpyxl', 'json', 'hashlib', 'datetime', 'pathlib', 'shutil', 'subprocess', 're', 'os', 'sys', 'time', 'threading', 'tkinter', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.ttk']
 tmp_ret = collect_all('sentence_transformers')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('transformers')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('chromadb')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('torch')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('huggingface_hub')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('tokenizers')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('accelerate')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('safetensors')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
@@ -21,7 +31,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['matplotlib', 'scipy'],
+    excludes=['matplotlib', 'scipy', 'PIL', 'cv2', 'IPython', 'jupyter'],
     noarchive=False,
     optimize=0,
 )

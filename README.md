@@ -69,6 +69,7 @@ pip install pywin32
 
 ## 🛠️ Installation
 
+### Quick Start
 1. **Clone or Download**: Get the SearchAuto files
 2. **Install Dependencies**:
    ```bash
@@ -79,6 +80,21 @@ pip install pywin32
    ```bash
    python searchAuto.py
    ```
+
+### Building Standalone Executables
+For creating standalone executables and installers, see the comprehensive [BUILD_GUIDE.md](BUILD_GUIDE.md).
+
+**Quick Build Commands:**
+```bash
+# Simple build (no AI)
+python build_simple_exe.py
+
+# Full AI build
+python build_full_ai_exe.py
+
+# Light AI build
+python build_simple_ai_exe.py
+```
 
 ## 📖 Usage Guide
 
@@ -188,8 +204,14 @@ Each result shows:
 - **File Type**: TXT, DOCX, PDF, or XLSX (color-coded)
 - **File Path**: Full path to the file
 - **Location**: Where the match was found (line, paragraph, sheet, or AI match with similarity score)
-- **Content**: Preview of the matching text (with AI-generated summary if available)
+- **Content**: Preview of the matching text with AI-generated summaries for AI search results
 - **Actions**: "📄 Open File" and "📁 Folder" buttons
+
+**Content Column Features:**
+- **AI Search Results**: Shows AI-generated summaries followed by content preview
+- **Regular Search Results**: Shows content preview only
+- **Tooltip Support**: Hover over content to see full text
+- **Smart Truncation**: Long content is truncated with "..." and full text available on hover
 
 ### Index Management
 
@@ -278,9 +300,18 @@ SearchAuto/
 ├── run_search.bat                # Quick start for search tool
 ├── run_converter.bat             # Quick start for converter
 ├── install_all.bat               # Complete installation
+├── build_exe.py                  # Main build script
+├── build_simple_exe.py           # Simple build (no AI)
+├── build_full_ai_exe.py          # Full AI build
+├── build_simple_ai_exe.py        # Light AI build
+├── SearchAuto.spec               # PyInstaller spec (simple)
+├── SearchAuto_FullAI.spec        # PyInstaller spec (full AI)
+├── installer.nsi                 # NSIS installer script
 ├── file_index.db                 # SQLite keyword index database (created automatically)
 ├── ai_search_db/                 # ChromaDB AI index directory (created automatically)
 ├── README.md                     # This documentation
+├── BUILD_GUIDE.md               # Build documentation
+├── QUICK_START.md               # Quick start guide
 └── requirements.txt              # Python dependencies
 ```
 
@@ -292,6 +323,14 @@ SearchAuto/
 - **Index Privacy**: All search indexes are stored locally in your project directory
 
 ## 🌟 Recent Updates
+
+### Version 2.1 - Enhanced Search Results Display
+- ✅ **Content Column**: New column showing content previews and AI summaries
+- ✅ **AI Summary Integration**: AI-generated summaries displayed in search results
+- ✅ **Tooltip Support**: Hover over content to see full text
+- ✅ **Smart Truncation**: Long content intelligently truncated with full text on hover
+- ✅ **Enhanced UI**: Improved layout with better content visibility
+- ✅ **Cross-Search Compatibility**: Content column works with all search modes
 
 ### Version 2.0 - File Conversion Tools
 - ✅ **DOC to DOCX Converter**: Convert legacy .doc files to modern .docx format

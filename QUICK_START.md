@@ -42,6 +42,7 @@ run_integrated.bat
 - **Multi-root file search** across TXT, DOCX, PDF, XLSX files
 - **Three search modes**: Live, Index, and AI-powered semantic search
 - **Document summarization** with AI
+- **Content column** showing previews and AI summaries
 - **Background indexing** when system is idle
 
 ### 🔄 Unified Converter
@@ -87,6 +88,24 @@ run_integrated.bat
 - Look at the troubleshooting section for common issues
 - Ensure all dependencies are installed correctly
 - Try running tools individually to isolate problems
+- For build issues, see BUILD_GUIDE.md
+
+## 🏗️ Building Executables
+
+For creating standalone executables:
+
+```bash
+# Simple build (no AI)
+python build_simple_exe.py
+
+# Full AI build
+python build_full_ai_exe.py
+
+# Light AI build
+python build_simple_ai_exe.py
+```
+
+See [BUILD_GUIDE.md](BUILD_GUIDE.md) for complete build documentation.
 
 ## 📁 File Structure
 ```

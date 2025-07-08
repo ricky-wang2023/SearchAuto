@@ -1,15 +1,23 @@
-# Core search dependencies
+# Core dependencies
 python-docx>=0.8.11
 PyPDF2>=3.0.1
 pandas>=1.5.0
 openpyxl>=3.0.10
 pdfminer.six>=20221105
 
-# AI search dependencies
-sentence-transformers>=2.2.2
-chromadb>=0.4.15
-torch>=1.13.0
-transformers>=4.21.0
+# AI and ML dependencies
+sentence-transformers
+transformers
+chromadb
+huggingface-hub
+torch
+filelock
+
+# Additional dependencies
+numpy
+scipy
+scikit-learn
+typing_extensions
 
 # Windows-specific dependencies
 pywin32>=305; sys_platform == "win32"
