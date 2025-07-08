@@ -462,183 +462,6 @@ def start_live_search():
         search_folder(root_path, keyword, results)
     root.after(0, lambda: show_results(results))
 
-def show_results(results):
-    for widget in results_inner_frame.winfo_children():
-        widget.destroy()
-    
-    # Add bundle toggle checkbox
-    bundle_frame = tk.Frame(results_inner_frame, bg="#f0f0f0")
-    bundle_frame.pack(fill="x", padx=5, pady=(5,0))
-    tk.Checkbutton(bundle_frame, text="Bundle by file (show only best match per file)", variable=bundle_by_file, bg="#f0f0f0", command=lambda: show_results(results)).pack(side="left", padx=5, pady=5)
-
-    display_results = results
-    if bundle_by_file.get():
-        # Deduplicate: keep only the best match per file (first occurrence or highest score if available)
-        file_best = {}
-        for res in results:
-            file_path = res['File Path']
-            # Use similarity score if available, else just first occurrence
-            score = None
-            if 'Location' in res and 'Score:' in res['Location']:
-                try:
-                    score = float(res['Location'].split('Score:')[1].split(')')[0])
-                except:
-                    score = None
-            if file_path not in file_best:
-                file_best[file_path] = (res, score)
-            else:
-                prev_res, prev_score = file_best[file_path]
-                if score is not None and (prev_score is None or score > prev_score):
-                    file_best[file_path] = (res, score)
-        display_results = [v[0] for v in file_best.values()]
-
-    if display_results:
-        # Create header row
-        header_frame = tk.Frame(results_inner_frame, bg="#f0f0f0", relief="raised", bd=1)
-        header_frame.pack(fill="x", padx=5, pady=(5,0))
-        
-        tk.Label(header_frame, text="File Type", font=("Arial", 10, "bold"), bg="#f0f0f0", width=8).pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="File Path", font=("Arial", 10, "bold"), bg="#f0f0f0", width=30, anchor="w").pack(side="left", padx=5, pady=5, fill="x", expand=True)
-        tk.Label(header_frame, text="Location", font=("Arial", 10, "bold"), bg="#f0f0f0", width=15).pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="Content", font=("Arial", 10, "bold"), bg="#f0f0f0", width=30, anchor="w").pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="Actions", font=("Arial", 10, "bold"), bg="#f0f0f0", width=15).pack(side="left", padx=5, pady=5)
-        
-        # Tooltip for file path
-        tooltip = tk.Toplevel(root)
-        tooltip.withdraw()
-        tooltip.overrideredirect(True)
-        tooltip_label = tk.Label(tooltip, text="", background="#ffffe0", relief="solid", borderwidth=1, font=("Arial", 9))
-        tooltip_label.pack(ipadx=1)
-        
-        def show_tooltip(event, text):
-            tooltip_label.config(text=text)
-            tooltip.deiconify()
-            tooltip.lift()
-            x = event.widget.winfo_rootx() + event.x + 20
-            y = event.widget.winfo_rooty() + event.y + 10
-            tooltip.geometry(f"+{x}+{y}")
-        def hide_tooltip(event):
-            tooltip.withdraw()
-        
-        # Display results with alternating row colors
-        for idx, res in enumerate(display_results):
-            row_bg = "#ffffff" if idx % 2 == 0 else "#f8f8f8"
-            result_frame = tk.Frame(results_inner_frame, bg=row_bg, relief="flat", bd=1)
-            result_frame.pack(fill="x", padx=5, pady=1)
-            
-            file_type_colors = {
-                "TXT": "#4CAF50",
-                "DOCX": "#2196F3",
-                "PDF": "#FF5722",
-                "XLSX": "#FF9800",
-                "MD": "#9C27B0"
-            }
-            type_color = file_type_colors.get(res['File Type'], "#666666")
-            tk.Label(result_frame, text=res['File Type'], font=("Arial", 9, "bold"), 
-                    fg="white", bg=type_color, width=8, relief="raised").pack(side="left", padx=5, pady=5)
-            
-            path_text = res['File Path']
-            display_path = os.path.basename(path_text)
-            path_label = tk.Label(result_frame, text=display_path, font=("Arial", 9), 
-                                  bg=row_bg, anchor="w", width=30)
-            path_label.pack(side="left", padx=5, pady=5, fill="x", expand=True)
-            path_label.bind("<Enter>", lambda e, t=path_text: show_tooltip(e, t))
-            path_label.bind("<Leave>", hide_tooltip)
-            
-            # Location column improvement
-            location_text = res['Location']
-            # For AI results, show chunk info if available
-            if 'chunk_index' in res and 'total_chunks' in res:
-                location_text = f"Chunk {res['chunk_index']+1}/{res['total_chunks']} (Score: {res.get('similarity_score', 0):.2f})"
-            elif 'Score:' in location_text and 'chunk' in res:
-                location_text = f"Chunk {res['chunk']} (Score: {res.get('similarity_score', 0):.2f})"
-            # For index search, try to extract more context if possible (future: line/paragraph)
-            tk.Label(result_frame, text=location_text, font=("Arial", 9), 
-                    bg=row_bg, anchor="w", width=15).pack(side="left", padx=5, pady=5)
-            
-            # Display content if available, with keyword highlighting
-            content_text = res.get('Content', '')
-            if content_text:
-                # Always show enough content for highlighting
-                display_content = content_text[:300] + "..." if len(content_text) > 300 else content_text
-                # Remove all brackets for display
-                clean_content = re.sub(r'\[([^\]]+)\]', r'\1', display_content)
-                print(f"[DEBUG] Content for highlighting: {clean_content}")
-                content_widget = tk.Text(result_frame, height=3, width=50, font=("Arial", 9), bg=row_bg, wrap="word", borderwidth=2, relief="solid", highlightthickness=2, highlightbackground="#888")
-                content_widget.insert("1.0", clean_content)
-                # Robustly highlight all words in the keyword/phrase
-                keyword = keyword_entry.get().strip()
-                print(f"[DEBUG] Keyword entry: '{keyword}'")
-                match_count = 0
-                if keyword:
-                    words = [w for w in re.split(r'\s+', keyword) if w]
-                    print(f"[DEBUG] Words to highlight: {words}")
-                    for word in words:
-                        for match in re.finditer(re.escape(word), clean_content, re.IGNORECASE):
-                            start, end = match.start(), match.end()
-                            start_idx = f"1.0+{start}c"
-                            end_idx = f"1.0+{end}c"
-                            print(f"[DEBUG] Highlighting '{clean_content[start:end]}' at {start_idx} to {end_idx}")
-                            content_widget.tag_add("highlight", start_idx, end_idx)
-                            match_count += 1
-                    content_widget.tag_config("highlight", foreground="#228B22", font=("Arial", 9, "bold"))
-                if match_count == 0:
-                    print(f"[DEBUG] No matches found for highlighting in: {clean_content}")
-                content_widget.config(state="disabled")
-                content_widget.pack(side="left", padx=5, pady=5)
-                content_widget.bind("<Enter>", lambda e, t=content_text: show_tooltip(e, t))
-                content_widget.bind("<Leave>", hide_tooltip)
-            else:
-                tk.Label(result_frame, text="", font=("Arial", 9), 
-                        bg=row_bg, anchor="w", width=30).pack(side="left", padx=5, pady=5)
-            
-            actions_frame = tk.Frame(result_frame, bg=row_bg)
-            actions_frame.pack(side="left", padx=5, pady=5)
-            tk.Button(actions_frame, text="📄 Open", command=lambda p=res['File Path']: open_file(p), 
-                     bg="#4CAF50", fg="white", font=("Arial", 8, "bold"), 
-                     relief="flat", bd=0, padx=8, pady=2).pack(side="left", padx=2)
-            tk.Button(actions_frame, text="📁 Folder", command=lambda p=res['File Path']: open_folder_location(p), 
-                     bg="#2196F3", fg="white", font=("Arial", 8, "bold"), 
-                     relief="flat", bd=0, padx=8, pady=2).pack(side="left", padx=2)
-        
-        # Consolidated AI summary (with debug and fallback)
-        is_ai_results = any('AI Match' in res.get('Location', '') or 'Score:' in res.get('Location', '') for res in results)
-        if is_ai_results and AI_AVAILABLE and len(results) > 1:
-            all_contents = []
-            for res in results:
-                content = res.get('Content', '')
-                if content.startswith('📝 Summary:'):
-                    content = content.split('\n\n📄 Content:')[-1]
-                all_contents.append(content)
-            all_text = '\n'.join(all_contents)
-            summary_text = None
-            try:
-                model_choice = ai_model_var.get()
-                summary_text = ai_summarize_dispatch(all_text, model_choice)
-            except Exception as e:
-                print(f"[DEBUG] AI summary generation failed: {e}")
-            if not summary_text:
-                # Fallback: concatenate top 3 results
-                summary_text = '\n'.join(all_contents[:3])
-            summary_frame = tk.Frame(results_inner_frame, bg="#e3f2fd", relief="groove", bd=2)
-            summary_frame.pack(fill="x", padx=5, pady=(5,0))
-            tk.Label(summary_frame, text="🤖 Consolidated AI Summary:", font=("Arial", 10, "bold"), fg="#1565C0", bg="#e3f2fd").pack(anchor="w", padx=10, pady=(5,0))
-            tk.Label(summary_frame, text=summary_text, font=("Arial", 9), fg="#1565C0", bg="#e3f2fd", wraplength=800, justify="left").pack(anchor="w", padx=10, pady=(0,5))
-
-        summary_frame = tk.Frame(results_inner_frame, bg="#e8f5e8", relief="groove", bd=1)
-        summary_frame.pack(fill="x", padx=5, pady=(5,0))
-        tk.Label(summary_frame, text=f"✓ Found {len(display_results)} match{'es' if len(display_results) != 1 else ''}", 
-                font=("Arial", 10, "bold"), fg="#2E7D32", bg="#e8f5e8").pack(pady=5)
-        messagebox.showinfo("Search Complete", f"Found {len(display_results)} matches.")
-    else:
-        no_results_frame = tk.Frame(results_inner_frame, bg="#fff3cd", relief="groove", bd=2)
-        no_results_frame.pack(fill="x", padx=20, pady=20)
-        tk.Label(no_results_frame, text="🔍 No matches found", 
-                font=("Arial", 12, "bold"), fg="#856404", bg="#fff3cd").pack(pady=10)
-        tk.Label(no_results_frame, text="Try different keywords or check your file types", 
-                font=("Arial", 9), fg="#856404", bg="#fff3cd").pack(pady=(0,10))
-        messagebox.showinfo("Search Complete", "No matches found.")
-
 # Helper functions for context menu actions
 
 def open_selected_file(tree):
@@ -815,8 +638,7 @@ def open_folder_location(file_path):
         messagebox.showerror("Error", f"Cannot open folder: {e}")
 
 def clear_results():
-    for widget in results_inner_frame.winfo_children():
-        widget.destroy()
+    tree.delete(*tree.get_children())
 
 # === App Window Layout ===
 results = []
@@ -827,14 +649,49 @@ root.configure(bg="#f5f5f5")  # Light gray background
 root.minsize(1200, 700)  # Ensure both panels are visible
 root.geometry("1400x800")  # Force initial window width for both panels
 
+# Update layout for sidebar: Index Management on right, full height; search/results on left
+
+# Index Management panel (right, full height)
+index_frame = tk.LabelFrame(root, text="⚙️ Index Management", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
+index_frame.grid(row=0, column=1, rowspan=3, padx=10, pady=5, sticky="nsew")
+
+# 1. Harmonize Index Management color scheme
+# After creating the three sections, set their color scheme
+
+
+# Roots Management (top left)
+roots_frame = tk.LabelFrame(root, text="📁 Indexed Roots", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
+roots_frame.grid(row=0, column=0, padx=10, pady=8, sticky="ew")
+
+# Search controls (middle left)
+search_frame = tk.LabelFrame(root, text="🔍 Search", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
+search_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+
+# Search Results (bottom left)
+results_frame = tk.LabelFrame(root, text="Search Results", font=("Arial", 12, "bold"), fg="navy", relief="groove", bd=2)
+results_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+
+# Grid configuration
+root.grid_columnconfigure(0, weight=3)  # Left/main area
+root.grid_columnconfigure(1, weight=1)  # Right panel
+root.grid_rowconfigure(2, weight=1)     # Make results area expandable
+
+# Add bundle_by_file variable if not already present
 bundle_by_file = tk.BooleanVar(value=True)
 
-# Roots Management Frame (top, full width)
-roots_frame = tk.LabelFrame(root, text="📁 Indexed Roots", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-roots_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=8, sticky="ew")
-tk.Label(roots_frame, text="Select roots to search (Ctrl+Click for multi-select):", font=("Arial", 9)).pack(anchor="w", padx=5, pady=2)
+# Add the bundle checkbox above the results table
+bundle_checkbox = tk.Checkbutton(results_frame, text="Bundle by file (show only best match per file)", variable=bundle_by_file, command=lambda: show_results(results), bg="#f5f5f5")
+bundle_checkbox.pack(anchor="w", padx=5, pady=(5, 0))
 
-# Create a frame for the listbox and arrow buttons
+# Place these function definitions before embedding_section and its buttons
+
+def build_openai_embeddings_thread():
+    print("Build OpenAI Embeddings clicked")
+
+def build_cohere_embeddings_thread():
+    print("Build Cohere Embeddings clicked")
+
+# Roots Management Frame (top, full width)
 roots_content_frame = tk.Frame(roots_frame)
 roots_content_frame.pack(fill="x", expand=True, padx=5, pady=5)
 
@@ -859,8 +716,6 @@ tk.Button(roots_btn_frame, text="➖ Remove Root", command=remove_root_gui, bg="
 update_roots_listbox()
 
 # Search Controls Frame (left, below roots)
-search_frame = tk.LabelFrame(root, text="🔍 Search", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-search_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 search_inner = tk.Frame(search_frame)
 search_inner.pack(fill="x", expand=True, padx=5, pady=5)
 keyword_label = tk.Label(search_inner, text="Keyword:", font=("Arial", 10, "bold"))
@@ -883,82 +738,113 @@ tk.Button(search_buttons_frame, text="🔍 Live Search", command=start_live_sear
 tk.Button(search_buttons_frame, text="⚡ Index Search", command=start_index_search, bg="#FF9800", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 tk.Button(search_buttons_frame, text="🤖 AI Search", command=start_ai_search, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 tk.Button(search_buttons_frame, text="🗑️ Clear", command=clear_results, bg="#9E9E9E", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
+tk.Button(search_buttons_frame, text="❌ Cancel", command=cancel_search, bg="#E53935", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 
-# Index Management Controls Frame (right, full height below roots)
-index_frame = tk.LabelFrame(root, text="⚙️ Index Management", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-index_frame.grid(row=1, column=1, rowspan=2, padx=10, pady=5, sticky="nsew")
-index_inner = tk.Frame(index_frame)
-index_inner.pack(fill="both", expand=True, padx=5, pady=5)
 
-# Results Frame (left, bottom)
-results_frame = tk.LabelFrame(root, text="Search Results", font=("Arial", 12, "bold"), fg="navy", relief="groove", bd=2)
-results_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
-
-# Create a frame for the scrollable area
-results_scroll_frame = tk.Frame(results_frame)
-results_scroll_frame.pack(fill="both", expand=True, padx=5, pady=5)
-
-canvas = tk.Canvas(results_scroll_frame, width=900, height=400, bg="white", relief="flat", bd=0)
-scrollbar = tk.Scrollbar(results_scroll_frame, orient="vertical", command=canvas.yview)
-results_inner_frame = tk.Frame(canvas, bg="white")
-results_inner_frame.bind(
-    "<Configure>",
-    lambda e: canvas.configure(
-        scrollregion=canvas.bbox("all")
-    )
-)
-canvas.create_window((0, 0), window=results_inner_frame, anchor="nw")
-canvas.configure(yscrollcommand=scrollbar.set)
-canvas.pack(side="left", fill="both", expand=True)
-scrollbar.pack(side="right", fill="y")
-root.grid_rowconfigure(1, weight=1)
-root.grid_rowconfigure(2, weight=2)
-root.grid_columnconfigure(0, weight=3)
-root.grid_columnconfigure(1, weight=1)
+# After defining index_frame, add the three grouped sections
 
 # Regular Index Section
-regular_index_section = tk.LabelFrame(index_inner, text="Regular Index", font=("Arial", 9, "bold"), fg="#333", relief="ridge", bd=1)
-regular_index_section.pack(fill="x", pady=2, anchor="w")
-tk.Button(regular_index_section, text="🔄 Rebuild", command=build_index_all_thread, bg="#FF5722", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0, width=12).pack(side="left", padx=2, pady=2)
-tk.Button(regular_index_section, text="🔄 Update", command=update_index_all_thread, bg="#607D8B", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0, width=12).pack(side="left", padx=2, pady=2)
+regular_index_section = tk.LabelFrame(index_frame, text="Regular Index", font=("Arial", 9, "bold"))
+regular_index_section.pack(fill="x", pady=(0, 5), padx=5)
+tk.Button(regular_index_section, text="🔄 Rebuild", command=build_index_all_thread, width=16).pack(side="left", padx=2, pady=2)
+tk.Button(regular_index_section, text="🔄 Update", command=update_index_all_thread, width=16).pack(side="left", padx=2, pady=2)
 
 # AI Index Section
-ai_index_section = tk.LabelFrame(index_inner, text="AI Index", font=("Arial", 9, "bold"), fg="#333", relief="ridge", bd=1)
-ai_index_section.pack(fill="x", pady=2, anchor="w")
-tk.Button(ai_index_section, text="🤖 Build AI", command=build_ai_index, bg="#9C27B0", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0, width=16).pack(side="left", padx=2, pady=2)
-tk.Button(ai_index_section, text="🗑️ Clear AI", command=clear_ai_index_gui, bg="#E91E63", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0, width=16).pack(side="left", padx=2, pady=2)
+ai_index_section = tk.LabelFrame(index_frame, text="AI Index", font=("Arial", 9, "bold"))
+ai_index_section.pack(fill="x", pady=(0, 5), padx=5)
+tk.Button(ai_index_section, text="🤖 Build AI", command=build_ai_index, width=16).pack(side="left", padx=2, pady=2)
+tk.Button(ai_index_section, text="🗑️ Clear AI", command=clear_ai_index_gui, width=16).pack(side="left", padx=2, pady=2)
 
 # External Embeddings Section
-embedding_section = tk.LabelFrame(index_inner, text="External Embeddings", font=("Arial", 9, "bold"), fg="#333", relief="ridge", bd=1)
-embedding_section.pack(fill="x", pady=2, anchor="w")
+embedding_section = tk.LabelFrame(index_frame, text="External Embeddings", font=("Arial", 9, "bold"))
+embedding_section.pack(fill="x", pady=(0, 5), padx=5)
+tk.Button(embedding_section, text="🔗 Build OpenAI Embeddings", command=build_openai_embeddings_thread, width=24).pack(fill="x", padx=2, pady=2)
+tk.Button(embedding_section, text="🔗 Build Cohere Embeddings", command=build_cohere_embeddings_thread, width=24).pack(fill="x", padx=2, pady=2)
+
+# After creating the three sections and their buttons, set their color scheme
+index_frame.config(bg="#f5f5f5")
+for section in [regular_index_section, ai_index_section, embedding_section]:
+    section.config(bg="#f5f5f5")
+    for child in section.winfo_children():
+        if isinstance(child, tk.Button):
+            child.config(bg="#2196F3", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0)
+
+# Define the StringVar before creating the label
+ai_summary_var = tk.StringVar()
+# AI Summary Label
+ai_summary_label = tk.Label(index_frame, textvariable=ai_summary_var, font=("Arial", 9), fg="#9C27B0", bg="#f5f5f5", anchor="w", justify="left", wraplength=250, relief="groove", bd=1)
+ai_summary_label.pack(fill="x", padx=5, pady=(10, 0))
+
+# Results Frame with Treeview for locked headers
+columns = ("File Type", "File Path", "Location", "Content")
+tree = ttk.Treeview(results_frame, columns=columns, show="headings", height=20)
+for col in columns:
+    tree.heading(col, text=col)
+    tree.column(col, anchor="w", width=150 if col != "Content" else 400)
+tree.pack(side="left", fill="both", expand=True)
+
+# Add vertical scrollbar
+scrollbar = ttk.Scrollbar(results_frame, orient="vertical", command=tree.yview)
+tree.configure(yscrollcommand=scrollbar.set)
+scrollbar.pack(side="right", fill="y")
+
+# Double-click to open file or folder
+def on_tree_double_click(event):
+    item = tree.selection()
+    if item:
+        col = tree.identify_column(event.x)
+        file_path = tree.item(item[0], "tags")[0]  # Get full path from tag
+        if col == "#2":  # File Path column
+            open_file(file_path)
+        elif col == "#3":  # Location column
+            open_folder_location(file_path)
+tree.bind("<Double-1>", on_tree_double_click)
+
+# Update show_results to use the Treeview
+def show_results(results):
+    tree.delete(*tree.get_children())
+    keyword = keyword_entry.get() if 'keyword_entry' in globals() else ''
+    display_results = results
+    if bundle_by_file.get():
+        # Deduplicate: keep only the best match per file (first occurrence or highest score if available)
+        file_best = {}
+        for res in results:
+            file_path = res.get('File Path', '')
+            score = res.get('similarity_score', None)
+            if file_path not in file_best:
+                file_best[file_path] = (res, score)
+            else:
+                prev_res, prev_score = file_best[file_path]
+                if score is not None and (prev_score is None or score > prev_score):
+                    file_best[file_path] = (res, score)
+        display_results = [v[0] for v in file_best.values()]
+    for res in display_results:
+        file_path = res.get('File Path', '')
+        file_name = os.path.basename(file_path)
+        tree.insert("", "end", values=(res.get('File Type', ''), file_name, res.get('Location', ''), res.get('Content', '')), tags=(file_path,))
+    # AI summary logic remains unchanged
+    is_ai_results = any('AI Match' in res.get('Location', '') or 'Score:' in res.get('Location', '') for res in display_results)
+    if is_ai_results and AI_AVAILABLE and len(display_results) > 1:
+        all_contents = []
+        for res in display_results:
+            content = res.get('Content', '')
+            if content.startswith('📝 Summary:'):
+                content = content.split('\n\n📄 Content:')[-1]
+            all_contents.append(content)
+        all_text = '\n'.join(all_contents)
+        summary_text = None
+        try:
+            model_choice = ai_model_var.get() if 'ai_model_var' in globals() else 'local'
+            summary_text = ai_summarize_dispatch(all_text, model_choice)
+        except Exception as e:
+            print(f"[DEBUG] AI summary generation failed: {e}")
+        if not summary_text:
+            summary_text = '\n'.join(all_contents[:3])
+        ai_summary_var.set("AI Summary: " + summary_text)
+    else:
+        ai_summary_var.set("")
 
 # === Threaded Embedding Build Functions ===
-def build_openai_embeddings_thread():
-    wait_win = show_wait_message("Building OpenAI embeddings, please wait...")
-    def run():
-        success = build_openai_embeddings()
-        root.after(0, lambda: wait_win.destroy())
-        if success:
-            root.after(0, lambda: messagebox.showinfo("OpenAI Embeddings", "OpenAI embeddings built and saved!"))
-        else:
-            root.after(0, lambda: messagebox.showerror("OpenAI Embeddings", "Failed to build OpenAI embeddings."))
-    threading.Thread(target=run).start()
-
-def build_cohere_embeddings_thread():
-    wait_win = show_wait_message("Building Cohere embeddings, please wait...")
-    def run():
-        success = build_cohere_embeddings()
-        root.after(0, lambda: wait_win.destroy())
-        if success:
-            root.after(0, lambda: messagebox.showinfo("Cohere Embeddings", "Cohere embeddings built and saved!"))
-        else:
-            root.after(0, lambda: messagebox.showerror("Cohere Embeddings", "Failed to build Cohere embeddings."))
-    threading.Thread(target=run).start()
-
-# --- Add embedding build buttons (vertical stack for visibility) ---
-tk.Button(embedding_section, text="🔗 Build OpenAI Embeddings", command=build_openai_embeddings_thread, bg="#1976D2", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0, width=24).pack(fill="x", padx=2, pady=2)
-tk.Button(embedding_section, text="🔗 Build Cohere Embeddings", command=build_cohere_embeddings_thread, bg="#00BFAE", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0, width=24).pack(fill="x", padx=2, pady=2)
-
 # === Embedding Build Functions ===
 def build_openai_embeddings():
     from openai import OpenAI
