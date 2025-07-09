@@ -481,7 +481,7 @@ def start_live_search_thread():
 def start_live_search():
     global search_cancelled
     search_cancelled = False
-    keyword = keyword_entry.get()
+    keyword = get_keyword_for_classic()
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
@@ -514,7 +514,7 @@ def cancel_search():
 def start_index_search():
     global search_cancelled
     search_cancelled = False
-    keyword = keyword_entry.get()
+    keyword = get_keyword_for_classic()
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
@@ -525,7 +525,7 @@ def start_index_search():
 def start_ai_search():
     global search_cancelled
     search_cancelled = False
-    keyword = keyword_entry.get()
+    keyword = get_keyword_for_ai()
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
@@ -773,8 +773,9 @@ search_inner = tk.Frame(search_frame)
 search_inner.pack(fill="x", expand=True, padx=5, pady=5)
 keyword_label = tk.Label(search_inner, text="Keyword:", font=("Arial", 10, "bold"))
 keyword_label.pack(side="left", padx=5)
-keyword_entry = tk.Entry(search_inner, width=50, font=("Arial", 10), relief="flat", bd=1)
-keyword_entry.pack(side="left", padx=5)
+# Replace keyword_entry with a multi-line Text widget
+keyword_text = tk.Text(search_inner, width=50, height=4, font=("Arial", 10), relief="flat", bd=1, wrap="word")
+keyword_text.pack(side="left", padx=5)
 
 # Search buttons frame
 search_buttons_frame = tk.Frame(search_inner)
@@ -885,7 +886,7 @@ item_full_content = {}
 
 def show_results(results):
     tree.delete(*tree.get_children())
-    keyword = keyword_entry.get() if 'keyword_entry' in globals() else ''
+    keyword = keyword_text.get("1.0", "end").strip() if 'keyword_text' in globals() else ''
     display_results = results
     if bundle_by_file.get():
         # Deduplicate: keep only the best match per file (first occurrence or highest score if available)
@@ -1171,5 +1172,13 @@ def cohere_ai_search(keyword, n_results):
             })
     conn.close()
     return results
+
+# Add these utility functions before their first use (before start_live_search, start_index_search, start_ai_search):
+def get_keyword_for_classic():
+    text = keyword_text.get("1.0", "end").strip()
+    return text.split("\n", 1)[0] if text else ""
+
+def get_keyword_for_ai():
+    return keyword_text.get("1.0", "end").strip()
 
 root.mainloop()
