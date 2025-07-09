@@ -724,9 +724,10 @@ ai_summary_frame = tk.LabelFrame(root, text="AI Summary", font=("Arial", 11, "bo
 ai_summary_frame.grid(row=2, column=1, padx=10, pady=10, sticky="nsew")
 
 # Grid configuration
-root.grid_columnconfigure(0, weight=3)  # Left/main area
-root.grid_columnconfigure(1, weight=1)  # Right panel
-root.grid_rowconfigure(2, weight=1)     # Make results/summary area expandable
+# --- Main window grid configuration ---
+root.grid_columnconfigure(0, weight=4)  # Left/main area even wider
+root.grid_columnconfigure(1, weight=1, minsize=260)  # Right panel even narrower
+root.grid_rowconfigure(2, weight=1)  # Results/summary area expands
 
 # Add bundle_by_file variable if not already present
 bundle_by_file = tk.BooleanVar(value=True)
