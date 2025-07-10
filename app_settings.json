@@ -1,0 +1,9 @@
+{
+    "input_folder": "C:/Users/MUYYZOFFICE01/Desktop/CEA/Translate",
+    "output_folder": "C:/Users/MUYYZOFFICE01/Desktop/CEA/TransRes",
+    "engine": "google",
+    "src_lang": "Chinese (zh-cn) [zh-cn]",
+    "tgt_lang": "English (en) [en]",
+    "skip_translated": true,
+    "conflict_mode": "Auto Rename"
+}
