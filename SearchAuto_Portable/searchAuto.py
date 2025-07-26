@@ -1,6 +1,6 @@
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from docx import Document
 import PyPDF2
 import pandas as pd
@@ -11,6 +11,14 @@ import sqlite3
 import time
 import threading
 import json
+import re
+import numpy as np
+# Add dotenv support
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # AI Search imports
 try:
@@ -21,9 +29,44 @@ except ImportError:
     AI_AVAILABLE = False
     print("AI search dependencies not available. Install with: pip install sentence-transformers chromadb torch")
 
+import webbrowser
+
+# Add tooltip support
+class ToolTip(object):
+    def __init__(self, widget):
+        self.widget = widget
+        self.tipwindow = None
+        self.text = ''
+    def showtip(self, text, x, y):
+        """Display text in tooltip window at (x, y)"""
+        self.text = text
+        if self.tipwindow or not self.text:
+            return
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = tk.Label(tw, text=self.text, justify='left',
+                         background="#ffffe0", relief='solid', borderwidth=1,
+                         font=("Arial Unicode MS", 10), wraplength=600)
+        label.pack(ipadx=1)
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
 INDEX_DB = os.path.join(os.path.dirname(__file__), 'file_index.db')
 search_cancelled = False
 indexing_in_progress = False
+
+# === Helper for loading embeddings ===
+def load_embeddings(filename):
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[Failed to load embeddings: {e}]")
+        return {}
 
 # === Database Schema Migration ===
 def ensure_schema():
@@ -79,6 +122,9 @@ def extract_file_content(file_path):
         if file_path.endswith('.txt'):
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 return f.read()
+        elif file_path.endswith('.md'):
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
         elif file_path.endswith('.docx'):
             doc = Document(file_path)
             return '\n'.join([para.text for para in doc.paragraphs])
@@ -124,7 +170,7 @@ def build_index_all():
                         indexing_in_progress = False
                         return
                     file_path = os.path.join(root, file)
-                    if file.endswith(('.txt', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
+                    if file.endswith(('.txt', '.md', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
                         mtime = os.path.getmtime(file_path)
                         content = extract_file_content(file_path)
                         c.execute('INSERT INTO file_index (file_path, file_type, mtime, content, root_path) VALUES (?, ?, ?, ?, ?)',
@@ -157,7 +203,7 @@ def update_index_all():
                         indexing_in_progress = False
                         return
                     file_path = os.path.join(root, file)
-                    if file.endswith(('.txt', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
+                    if file.endswith(('.txt', '.md', '.docx', '.pdf', '.xlsx')) and not file.startswith('~$'):
                         mtime = os.path.getmtime(file_path)
                         seen.add((file_path, root_path))
                         if (file_path, root_path) not in indexed:
@@ -219,6 +265,23 @@ def search_txt(file_path, keyword, results):
     except Exception as e:
         print(f"Error reading TXT {file_path}: {e}")
 
+def search_md(file_path, keyword, results):
+    global search_cancelled
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for i, line in enumerate(f, start=1):
+                if search_cancelled:
+                    return
+                if keyword.lower() in line.lower():
+                    results.append({
+                        "File Path": file_path,
+                        "File Type": "MD",
+                        "Location": f"Line {i}",
+                        "Content": line.strip()
+                    })
+    except Exception as e:
+        print(f"Error reading MD {file_path}: {e}")
+
 def search_docx(file_path, keyword, results):
     global search_cancelled
     try:
@@ -262,10 +325,15 @@ def search_xlsx(file_path, keyword, results):
                     return
                 for col_name, cell_value in row.items():
                     if pd.notnull(cell_value) and keyword.lower() in str(cell_value).lower():
+                        # Convert row_idx to string first, then to int to handle various index types
+                        try:
+                            row_num = int(str(row_idx)) + 1
+                        except (ValueError, TypeError):
+                            row_num = 1  # Fallback if conversion fails
                         results.append({
                             "File Path": file_path,
                             "File Type": "XLSX",
-                            "Location": f"Sheet {sheet_name}, Row {row_idx + 1}, Column {col_name}",
+                            "Location": f"Sheet {sheet_name}, Row {row_num}, Column {col_name}",
                             "Content": str(cell_value)
                         })
     except Exception as e:
@@ -281,6 +349,8 @@ def search_folder(folder_path, keyword, results):
             file_path = os.path.join(root, file)
             if file.endswith('.txt'):
                 search_txt(file_path, keyword, results)
+            elif file.endswith('.md'):
+                search_md(file_path, keyword, results)
             elif file.endswith('.docx'):
                 search_docx(file_path, keyword, results)
             elif file.endswith('.pdf'):
@@ -377,11 +447,12 @@ def show_wait_message(msg):
 def build_index_all_gui():
     global search_cancelled
     search_cancelled = False
+    status_var.set("Rebuilding index...")
     wait_win = show_wait_message("Rebuilding index, please wait...")
     t0 = time.time()
     build_index_all()
     wait_win.destroy()
-    root.after(0, lambda: messagebox.showinfo("Index", f"Index rebuilt in {time.time() - t0:.1f} seconds."))
+    root.after(0, lambda: [messagebox.showinfo("Index", f"Index rebuilt in {time.time() - t0:.1f} seconds."), status_var.set("Ready")])
 
 def update_index_all_thread():
     thread = threading.Thread(target=update_index_all_gui)
@@ -390,11 +461,12 @@ def update_index_all_thread():
 def update_index_all_gui():
     global search_cancelled
     search_cancelled = False
+    status_var.set("Updating index...")
     wait_win = show_wait_message("Updating index, please wait...")
     t0 = time.time()
     update_index_all()
     wait_win.destroy()
-    root.after(0, lambda: messagebox.showinfo("Index", f"Index updated in {time.time() - t0:.1f} seconds."))
+    root.after(0, lambda: [messagebox.showinfo("Index", f"Index updated in {time.time() - t0:.1f} seconds."), status_var.set("Ready")])
 
 def update_index_periodically():
     global search_cancelled
@@ -409,7 +481,7 @@ def start_live_search_thread():
 def start_live_search():
     global search_cancelled
     search_cancelled = False
-    keyword = keyword_entry.get()
+    keyword = get_keyword_for_classic()
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
@@ -418,80 +490,21 @@ def start_live_search():
         search_folder(root_path, keyword, results)
     root.after(0, lambda: show_results(results))
 
-def show_results(results):
-    for widget in results_inner_frame.winfo_children():
-        widget.destroy()
-    
-    if results:
-        # Create header row
-        header_frame = tk.Frame(results_inner_frame, bg="#f0f0f0", relief="raised", bd=1)
-        header_frame.pack(fill="x", padx=5, pady=(5,0))
-        
-        tk.Label(header_frame, text="File Type", font=("Arial", 10, "bold"), bg="#f0f0f0", width=8).pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="File Path", font=("Arial", 10, "bold"), bg="#f0f0f0", width=50).pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="Location", font=("Arial", 10, "bold"), bg="#f0f0f0", width=15).pack(side="left", padx=5, pady=5)
-        tk.Label(header_frame, text="Actions", font=("Arial", 10, "bold"), bg="#f0f0f0", width=15).pack(side="left", padx=5, pady=5)
-        
-        # Display results with alternating row colors
-        for idx, res in enumerate(results):
-            # Create result row frame
-            row_bg = "#ffffff" if idx % 2 == 0 else "#f8f8f8"
-            result_frame = tk.Frame(results_inner_frame, bg=row_bg, relief="flat", bd=1)
-            result_frame.pack(fill="x", padx=5, pady=1)
-            
-            # File type with color coding
-            file_type_colors = {
-                "TXT": "#4CAF50",    # Green
-                "DOCX": "#2196F3",   # Blue
-                "PDF": "#FF5722",     # Red
-                "XLSX": "#FF9800"     # Orange
-            }
-            type_color = file_type_colors.get(res['File Type'], "#666666")
-            tk.Label(result_frame, text=res['File Type'], font=("Arial", 9, "bold"), 
-                    fg="white", bg=type_color, width=8, relief="raised").pack(side="left", padx=5, pady=5)
-            
-            # File path with better formatting
-            path_text = res['File Path']
-            if len(path_text) > 60:
-                path_text = "..." + path_text[-57:]
-            tk.Label(result_frame, text=path_text, font=("Arial", 9), 
-                    bg=row_bg, anchor="w", width=50).pack(side="left", padx=5, pady=5)
-            
-            # Location
-            tk.Label(result_frame, text=res['Location'], font=("Arial", 9), 
-                    bg=row_bg, anchor="w", width=15).pack(side="left", padx=5, pady=5)
-            
-            # Action buttons frame
-            actions_frame = tk.Frame(result_frame, bg=row_bg)
-            actions_frame.pack(side="left", padx=5, pady=5)
-            
-            # Open File button
-            tk.Button(actions_frame, text="📄 Open", command=lambda p=res['File Path']: open_file(p), 
-                     bg="#4CAF50", fg="white", font=("Arial", 8, "bold"), 
-                     relief="flat", bd=0, padx=8, pady=2).pack(side="left", padx=2)
-            
-            # Open Folder button
-            tk.Button(actions_frame, text="📁 Folder", command=lambda p=res['File Path']: open_folder_location(p), 
-                     bg="#2196F3", fg="white", font=("Arial", 8, "bold"), 
-                     relief="flat", bd=0, padx=8, pady=2).pack(side="left", padx=2)
-        
-        # Add a summary at the bottom
-        summary_frame = tk.Frame(results_inner_frame, bg="#e8f5e8", relief="groove", bd=1)
-        summary_frame.pack(fill="x", padx=5, pady=(5,0))
-        tk.Label(summary_frame, text=f"✓ Found {len(results)} match{'es' if len(results) != 1 else ''}", 
-                font=("Arial", 10, "bold"), fg="#2E7D32", bg="#e8f5e8").pack(pady=5)
-        
-        messagebox.showinfo("Search Complete", f"Found {len(results)} matches.")
-    else:
-        # Show "no results" message in a styled frame
-        no_results_frame = tk.Frame(results_inner_frame, bg="#fff3cd", relief="groove", bd=2)
-        no_results_frame.pack(fill="x", padx=20, pady=20)
-        tk.Label(no_results_frame, text="🔍 No matches found", 
-                font=("Arial", 12, "bold"), fg="#856404", bg="#fff3cd").pack(pady=10)
-        tk.Label(no_results_frame, text="Try different keywords or check your file types", 
-                font=("Arial", 9), fg="#856404", bg="#fff3cd").pack(pady=(0,10))
-        
-        messagebox.showinfo("Search Complete", "No matches found.")
+# Helper functions for context menu actions
+
+def open_selected_file(tree):
+    selection = tree.selection()
+    if selection:
+        item = tree.item(selection[0])
+        file_path = item['values'][1]
+        open_file(file_path)
+
+def open_selected_folder(tree):
+    selection = tree.selection()
+    if selection:
+        item = tree.item(selection[0])
+        file_path = item['values'][1]
+        open_folder_location(file_path)
 
 def cancel_search():
     global search_cancelled
@@ -501,7 +514,7 @@ def cancel_search():
 def start_index_search():
     global search_cancelled
     search_cancelled = False
-    keyword = keyword_entry.get()
+    keyword = get_keyword_for_classic()
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
@@ -512,33 +525,53 @@ def start_index_search():
 def start_ai_search():
     global search_cancelled
     search_cancelled = False
-    keyword = keyword_entry.get()
+    keyword = get_keyword_for_ai()
     if not keyword:
         root.after(0, lambda: messagebox.showwarning("Input Error", "Please enter a keyword."))
         return
-    
     if not AI_AVAILABLE:
         root.after(0, lambda: messagebox.showerror("AI Search Error", "AI search is not available. Please install dependencies:\npip install sentence-transformers chromadb torch"))
         return
-    
     results.clear()
-    ai_results = ai_search(keyword, n_results=20)
-    
-    # Convert AI results to standard format
-    for result in ai_results:
-        # Create enhanced content with summary if available
-        content = result['content'][:200] + "..." if len(result['content']) > 200 else result['content']
-        if result.get('summary'):
-            content = f"📝 Summary: {result['summary']}\n\n📄 Content: {content}"
-        
-        results.append({
-            "File Path": result['file_path'],
-            "File Type": result['file_type'],
-            "Location": f"🤖 AI Match (Score: {result['similarity_score']:.2f})",
-            "Content": content
-        })
-    
-    root.after(0, lambda: show_results(results))
+    model_choice = ai_model_var.get()
+    status_var.set("Performing AI search...")
+    # Disable AI Search button while searching
+    for child in search_buttons_frame.winfo_children():
+        if isinstance(child, tk.Button) and getattr(child, 'cget', lambda x: None)('text') == '🤖 AI Search':
+            child.configure(state='disabled')
+    def ai_search_thread():
+        global search_cancelled
+        ai_results = ai_search_dispatch(keyword, n_results=20, model_choice=model_choice)
+        # Filter by selected roots
+        selected_roots = get_selected_roots()
+        def is_in_selected_roots(path):
+            import os
+            return any(os.path.abspath(path).startswith(os.path.abspath(root)) for root in selected_roots)
+        filtered_results = []
+        for r in ai_results:
+            if search_cancelled:
+                break
+            if is_in_selected_roots(r.get('file_path', '')):
+                filtered_results.append(r)
+        # Convert AI results to standard format
+        for result in filtered_results:
+            if search_cancelled:
+                break
+            content = result.get('content', '')
+            content = content[:200] + "..." if len(content) > 200 else content
+            if result.get('summary'):
+                content = f"📝 Summary: {result['summary']}\n\n📄 Content: {content}"
+            results.append({
+                "File Path": result.get('file_path', ''),
+                "File Type": result.get('file_type', ''),
+                "Location": f"🤖 AI Match (Score: {result.get('similarity_score', 0):.2f})",
+                "Content": content
+            })
+        # Re-enable AI Search button
+        root.after(0, lambda: [child.configure(state='normal') for child in search_buttons_frame.winfo_children() if isinstance(child, tk.Button) and getattr(child, 'cget', lambda x: None)('text') == '🤖 AI Search'])
+        if not search_cancelled:
+            root.after(0, lambda: [show_results(results), status_var.set("Ready")])
+    threading.Thread(target=ai_search_thread, daemon=True).start()
 
 def build_ai_index():
     """Build AI search index from current indexed files"""
@@ -644,8 +677,7 @@ def open_folder_location(file_path):
         messagebox.showerror("Error", f"Cannot open folder: {e}")
 
 def clear_results():
-    for widget in results_inner_frame.winfo_children():
-        widget.destroy()
+    tree.delete(*tree.get_children())
 
 # === App Window Layout ===
 results = []
@@ -653,18 +685,71 @@ results = []
 root = tk.Tk()
 root.title("🔍 SearchAuto - Universal File Content Search")
 root.configure(bg="#f5f5f5")  # Light gray background
+root.minsize(1200, 700)  # Ensure both panels are visible
+root.geometry("1400x800")  # Force initial window width for both panels
 
-# Roots Management Frame
+# Status bar
+status_var = tk.StringVar(value="Ready")
+status_bar = tk.Label(root, textvariable=status_var, bd=1, relief=tk.SUNKEN, anchor="w", font=("Arial", 9), bg="#eeeeee")
+status_bar.grid(row=99, column=0, columnspan=2, sticky="ew")
+
+# Update layout for sidebar: Index Management on right, full height; search/results on left
+
+# Index Management panel (right, now only at the top right)
+index_frame = tk.LabelFrame(root, text="⚙️ Index Management", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
+index_frame.grid(row=0, column=1, padx=10, pady=5, sticky="new")  # Only row=0, not rowspan=3
+
+# Remove previous ai_summary_frame placement
+# ai_summary_frame = tk.LabelFrame(root, text="AI Summary", font=("Arial", 11, "bold"), fg="#9C27B0", relief="groove", bd=2)
+# ai_summary_frame.grid(row=1, column=1, padx=10, pady=(0,5), sticky="new")
+
+# 1. Harmonize Index Management color scheme
+# After creating the three sections, set their color scheme
+
+
+# Roots Management (top left)
 roots_frame = tk.LabelFrame(root, text="📁 Indexed Roots", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-roots_frame.grid(row=0, column=0, columnspan=6, padx=10, pady=8, sticky="ew")
-tk.Label(roots_frame, text="Select roots to search (Ctrl+Click for multi-select):", font=("Arial", 9)).pack(anchor="w", padx=5, pady=2)
+roots_frame.grid(row=0, column=0, padx=10, pady=8, sticky="ew")
 
-# Create a frame for the listbox and arrow buttons
+# Search controls (middle left)
+search_frame = tk.LabelFrame(root, text="🔍 Search", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
+search_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+
+# Search Results (bottom left)
+results_frame = tk.LabelFrame(root, text="Search Results", font=("Arial", 12, "bold"), fg="navy", relief="groove", bd=2)
+results_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+
+# AI Summary Frame (right of results, same row)
+ai_summary_frame = tk.LabelFrame(root, text="AI Summary", font=("Arial", 11, "bold"), fg="#9C27B0", relief="groove", bd=2)
+ai_summary_frame.grid(row=2, column=1, padx=10, pady=10, sticky="nsew")
+
+# Grid configuration
+# --- Main window grid configuration ---
+root.grid_columnconfigure(0, weight=4)  # Left/main area even wider
+root.grid_columnconfigure(1, weight=1, minsize=260)  # Right panel even narrower
+root.grid_rowconfigure(2, weight=1)  # Results/summary area expands
+
+# Add bundle_by_file variable if not already present
+bundle_by_file = tk.BooleanVar(value=True)
+
+# Add the bundle checkbox above the results table
+bundle_checkbox = tk.Checkbutton(results_frame, text="Bundle by file (show only best match per file)", variable=bundle_by_file, command=lambda: show_results(results), bg="#f5f5f5")
+bundle_checkbox.pack(anchor="w", padx=5, pady=(5, 0))
+
+# Place these function definitions before embedding_section and its buttons
+
+def build_openai_embeddings_thread():
+    print("Build OpenAI Embeddings clicked")
+
+def build_cohere_embeddings_thread():
+    print("Build Cohere Embeddings clicked")
+
+# Roots Management Frame (top, full width)
 roots_content_frame = tk.Frame(roots_frame)
 roots_content_frame.pack(fill="x", expand=True, padx=5, pady=5)
 
 # Listbox on the left
-roots_listbox = tk.Listbox(roots_content_frame, width=80, height=3, selectmode=tk.MULTIPLE, font=("Arial", 9), relief="flat", bd=1)
+roots_listbox = tk.Listbox(roots_content_frame, width=80, height=8, selectmode=tk.MULTIPLE, font=("Arial", 9), relief="flat", bd=1)
 roots_listbox.pack(side="left", fill="x", expand=True, padx=(0,5))
 
 # Arrow buttons frame in the middle
@@ -683,73 +768,417 @@ tk.Button(roots_btn_frame, text="➖ Remove Root", command=remove_root_gui, bg="
 
 update_roots_listbox()
 
-# Search Controls Frame
-search_frame = tk.LabelFrame(root, text="🔍 Search", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-search_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+# Search Controls Frame (left, below roots)
 search_inner = tk.Frame(search_frame)
 search_inner.pack(fill="x", expand=True, padx=5, pady=5)
 keyword_label = tk.Label(search_inner, text="Keyword:", font=("Arial", 10, "bold"))
 keyword_label.pack(side="left", padx=5)
-keyword_entry = tk.Entry(search_inner, width=50, font=("Arial", 10), relief="flat", bd=1)
-keyword_entry.pack(side="left", padx=5)
+# Replace keyword_entry with a multi-line Text widget
+keyword_text = tk.Text(search_inner, width=50, height=4, font=("Arial", 10), relief="flat", bd=1, wrap="word")
+keyword_text.pack(side="left", padx=5)
 
 # Search buttons frame
 search_buttons_frame = tk.Frame(search_inner)
 search_buttons_frame.pack(side="left", padx=5)
 
+# Add AI model selection combobox
+ai_model_var = tk.StringVar(value="local")
+ai_model_options = ["local", "openai", "cohere"]
+tk.Label(search_inner, text="AI Model:", font=("Arial", 9)).pack(side="left", padx=5)
+ai_model_menu = ttk.Combobox(search_inner, textvariable=ai_model_var, values=ai_model_options, state="readonly", width=10)
+ai_model_menu.pack(side="left", padx=2)
+
 tk.Button(search_buttons_frame, text="🔍 Live Search", command=start_live_search_thread, bg="#2196F3", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 tk.Button(search_buttons_frame, text="⚡ Index Search", command=start_index_search, bg="#FF9800", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 tk.Button(search_buttons_frame, text="🤖 AI Search", command=start_ai_search, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 tk.Button(search_buttons_frame, text="🗑️ Clear", command=clear_results, bg="#9E9E9E", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
+tk.Button(search_buttons_frame, text="❌ Cancel", command=cancel_search, bg="#E53935", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
 
-# Index Management Controls Frame
-index_frame = tk.LabelFrame(root, text="⚙️ Index Management", font=("Arial", 11, "bold"), fg="navy", relief="groove", bd=2)
-index_frame.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
-index_inner = tk.Frame(index_frame)
-index_inner.pack(fill="x", expand=True, padx=5, pady=5)
 
-# Regular index buttons
-regular_index_frame = tk.Frame(index_inner)
-regular_index_frame.pack(side="left", padx=5)
-tk.Label(regular_index_frame, text="Regular Index:", font=("Arial", 8, "bold")).pack(anchor="w")
-tk.Button(regular_index_frame, text="🔄 Rebuild", command=build_index_all_thread, bg="#FF5722", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
-tk.Button(regular_index_frame, text="🔄 Update", command=update_index_all_thread, bg="#607D8B", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
+# After defining index_frame, add the three grouped sections
 
-# AI index buttons
-ai_index_frame = tk.Frame(index_inner)
-ai_index_frame.pack(side="left", padx=5)
-tk.Label(ai_index_frame, text="AI Index:", font=("Arial", 8, "bold")).pack(anchor="w")
-tk.Button(ai_index_frame, text="🤖 Build AI", command=build_ai_index, bg="#9C27B0", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
-tk.Button(ai_index_frame, text="🗑️ Clear AI", command=clear_ai_index_gui, bg="#E91E63", fg="white", font=("Arial", 8, "bold"), relief="flat", bd=0).pack(side="left", padx=2)
+# Regular Index Section
+regular_index_section = tk.LabelFrame(index_frame, text="Regular Index", font=("Arial", 9, "bold"))
+regular_index_section.pack(fill="x", pady=(0, 5), padx=5)
+tk.Button(regular_index_section, text="🔄 Rebuild", command=build_index_all_thread, width=16).pack(side="left", padx=2, pady=2)
+tk.Button(regular_index_section, text="🔄 Update", command=update_index_all_thread, width=16).pack(side="left", padx=2, pady=2)
 
-# Cancel button
-tk.Button(index_inner, text="❌ Cancel", command=cancel_search, bg="#f44336", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0).pack(side="right", padx=5)
+# AI Index Section
+ai_index_section = tk.LabelFrame(index_frame, text="AI Index", font=("Arial", 9, "bold"))
+ai_index_section.pack(fill="x", pady=(0, 5), padx=5)
+tk.Button(ai_index_section, text="🤖 Build AI", command=build_ai_index, width=16).pack(side="left", padx=2, pady=2)
+tk.Button(ai_index_section, text="🗑️ Clear AI", command=clear_ai_index_gui, width=16).pack(side="left", padx=2, pady=2)
 
-# Results Frame with Scrollbar - Beautified
-results_frame = tk.LabelFrame(root, text="Search Results", font=("Arial", 12, "bold"), fg="navy", relief="groove", bd=2)
-results_frame.grid(row=2, column=0, columnspan=6, padx=10, pady=10, sticky="nsew")
+# External Embeddings Section
+embedding_section = tk.LabelFrame(index_frame, text="External Embeddings", font=("Arial", 9, "bold"))
+embedding_section.pack(fill="x", pady=(0, 5), padx=5)
+tk.Button(embedding_section, text="🔗 Build OpenAI Embeddings", command=build_openai_embeddings_thread, width=24).pack(fill="x", padx=2, pady=2)
+tk.Button(embedding_section, text="🔗 Build Cohere Embeddings", command=build_cohere_embeddings_thread, width=24).pack(fill="x", padx=2, pady=2)
 
-# Create a frame for the scrollable area
-results_scroll_frame = tk.Frame(results_frame)
-results_scroll_frame.pack(fill="both", expand=True, padx=5, pady=5)
+# After creating the three sections and their buttons, set their color scheme
+index_frame.config(bg="#f5f5f5")
+for section in [regular_index_section, ai_index_section, embedding_section]:
+    section.config(bg="#f5f5f5")
+    for child in section.winfo_children():
+        if isinstance(child, tk.Button):
+            child.config(bg="#2196F3", fg="white", font=("Arial", 9, "bold"), relief="flat", bd=0)
 
-canvas = tk.Canvas(results_scroll_frame, width=900, height=400, bg="white", relief="flat", bd=0)
-scrollbar = tk.Scrollbar(results_scroll_frame, orient="vertical", command=canvas.yview)
-results_inner_frame = tk.Frame(canvas, bg="white")
-results_inner_frame.bind(
-    "<Configure>",
-    lambda e: canvas.configure(
-        scrollregion=canvas.bbox("all")
-    )
-)
-canvas.create_window((0, 0), window=results_inner_frame, anchor="nw")
-canvas.configure(yscrollcommand=scrollbar.set)
-canvas.pack(side="left", fill="both", expand=True)
-scrollbar.pack(side="right", fill="y")
-root.grid_rowconfigure(2, weight=1)
-root.grid_columnconfigure(1, weight=1)
+# Define the StringVar before creating the label
+ai_summary_var = tk.StringVar()
+# AI Summary Label
+ai_summary_label = tk.Label(ai_summary_frame, textvariable=ai_summary_var, font=("Arial", 9), fg="#9C27B0", bg="#f5f5f5", anchor="w", justify="left", wraplength=250, relief="groove", bd=1)
+ai_summary_label.pack(fill="x", padx=5, pady=5)
 
-# Periodic Index Update on Startup
-root.after(1000, update_index_periodically)
+# Results Frame with Treeview for locked headers
+columns = ("File Type", "File Path", "Location", "Content")
+results_tree_font = ("Arial Unicode MS", 10)
+
+# Create a sub-frame for the Treeview and scrollbars
+# Remove previous tree.pack and scrollbar.pack calls
+
+tree_frame = tk.Frame(results_frame)
+tree_frame.pack(fill="both", expand=True)
+
+tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=20)
+for col in columns:
+    tree.heading(col, text=col)
+    tree.column(col, anchor="w", width=200 if col != "Content" else 1000, stretch=False)
+style = ttk.Style()
+style.configure("Treeview", font=results_tree_font)
+
+tree.grid(row=0, column=0, sticky="nsw")
+
+# Add vertical and horizontal scrollbars
+scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal", command=tree.xview)
+tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+scrollbar_y.grid(row=0, column=1, sticky="ns")
+scrollbar_x.grid(row=1, column=0, sticky="ew")
+
+# Configure grid weights for proper resizing
+tree_frame.grid_rowconfigure(0, weight=1)
+tree_frame.grid_columnconfigure(0, weight=1)
+
+# Double-click to open file or folder
+def on_tree_double_click(event):
+    item = tree.selection()
+    if item:
+        col = tree.identify_column(event.x)
+        file_path = tree.item(item[0], "tags")[0]  # Get full path from tag
+        if col == "#2":  # File Path column
+            open_file(file_path)
+        elif col == "#3":  # Location column
+            open_folder_location(file_path)
+tree.bind("<Double-1>", on_tree_double_click)
+
+# Update show_results to truncate and clean content, and store full content for tooltip
+
+def clean_and_truncate_content(content, maxlen=200):
+    if not isinstance(content, str):
+        content = str(content)
+    content = content.replace('\n', ' ').replace('\t', ' ')
+    if len(content) > maxlen:
+        return content[:maxlen] + '...'
+    return content
+
+# Store mapping from tree item to full content for tooltip
+item_full_content = {}
+
+def show_results(results):
+    tree.delete(*tree.get_children())
+    keyword = keyword_text.get("1.0", "end").strip() if 'keyword_text' in globals() else ''
+    display_results = results
+    if bundle_by_file.get():
+        # Deduplicate: keep only the best match per file (first occurrence or highest score if available)
+        file_best = {}
+        for res in results:
+            file_path = res.get('File Path', '')
+            score = res.get('similarity_score', None)
+            if file_path not in file_best:
+                file_best[file_path] = (res, score)
+            else:
+                prev_res, prev_score = file_best[file_path]
+                if score is not None and (prev_score is None or score > prev_score):
+                    file_best[file_path] = (res, score)
+        display_results = [v[0] for v in file_best.values()]
+    item_full_content.clear()
+    for res in display_results:
+        file_path = res.get('File Path', '')
+        file_name = os.path.basename(file_path)
+        content = res.get('Content', '')
+        short_content = clean_and_truncate_content(content)
+        item_id = tree.insert("", "end", values=(res.get('File Type', ''), file_name, res.get('Location', ''), short_content), tags=(file_path,))
+        item_full_content[item_id] = content
+    # AI summary logic remains unchanged
+    is_ai_results = any('AI Match' in res.get('Location', '') or 'Score:' in res.get('Location', '') for res in display_results)
+    if is_ai_results and AI_AVAILABLE and len(display_results) > 1:
+        all_contents = []
+        for res in display_results:
+            content = res.get('Content', '')
+            if content.startswith('📝 Summary:'):
+                content = content.split('\n\n📄 Content:')[-1]
+            all_contents.append(content)
+        all_text = '\n'.join(all_contents)
+        summary_text = None
+        try:
+            model_choice = ai_model_var.get() if 'ai_model_var' in globals() else 'local'
+            summary_text = ai_summarize_dispatch(all_text, model_choice)
+        except Exception as e:
+            print(f"[DEBUG] AI summary generation failed: {e}")
+        if not summary_text:
+            summary_text = '\n'.join(all_contents[:3])
+        ai_summary_var.set("AI Summary: " + summary_text)
+    else:
+        ai_summary_var.set("")
+    status_var.set("Ready")
+
+# Tooltip for full content on hover
+tree_tooltip = ToolTip(tree)
+def on_tree_motion(event):
+    region = tree.identify("region", event.x, event.y)
+    if region == "cell":
+        row_id = tree.identify_row(event.y)
+        col = tree.identify_column(event.x)
+        if col == "#4" and row_id in item_full_content:
+            bbox = tree.bbox(row_id, col)
+            if bbox:
+                x, y, width, height = bbox
+                abs_x = tree.winfo_rootx() + x + width
+                abs_y = tree.winfo_rooty() + y + height // 2
+                full_content = item_full_content[row_id]
+                tree_tooltip.showtip(full_content, abs_x, abs_y)
+            else:
+                tree_tooltip.hidetip()
+        else:
+            tree_tooltip.hidetip()
+    else:
+        tree_tooltip.hidetip()
+tree.bind("<Motion>", on_tree_motion)
+tree.bind("<Leave>", lambda e: tree_tooltip.hidetip())
+
+# === Threaded Embedding Build Functions ===
+# === Embedding Build Functions ===
+def build_openai_embeddings():
+    from openai import OpenAI
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("[OpenAI API key not set]")
+        return False
+    client = OpenAI(api_key=api_key)
+    # Get all indexed files
+    conn = sqlite3.connect(INDEX_DB, timeout=30)
+    c = conn.cursor()
+    c.execute('SELECT file_path, file_type, content FROM file_index')
+    files = c.fetchall()
+    conn.close()
+    if not files:
+        print("[No files found in index]")
+        return False
+    embeddings = {}
+    for file_path, file_type, content in files:
+        try:
+            resp = client.embeddings.create(
+                input=content[:2000],
+                model="text-embedding-ada-002"
+            )
+            emb = resp.data[0].embedding
+            embeddings[file_path] = emb
+        except Exception as e:
+            print(f"[OpenAI embedding failed for {file_path}: {e}]")
+    with open("embeddings_openai.json", "w", encoding="utf-8") as f:
+        json.dump(embeddings, f)
+    print("[OpenAI embeddings built and saved]")
+    return True
+
+def build_cohere_embeddings():
+    import cohere
+    api_key = os.getenv("COHERE_API_KEY")
+    if not api_key:
+        print("[Cohere API key not set]")
+        return False
+    co = cohere.Client(api_key)
+    # Get all indexed files
+    conn = sqlite3.connect(INDEX_DB, timeout=30)
+    c = conn.cursor()
+    c.execute('SELECT file_path, file_type, content FROM file_index')
+    files = c.fetchall()
+    conn.close()
+    if not files:
+        print("[No files found in index]")
+        return False
+    embeddings = {}
+    for file_path, file_type, content in files:
+        try:
+            resp = co.embed(texts=[content[:2000]], model="embed-english-v3.0", input_type="search_document")
+            emb = resp.embeddings[0]
+            embeddings[file_path] = emb
+        except Exception as e:
+            print(f"[Cohere embedding failed for {file_path}: {e}]")
+    with open("embeddings_cohere.json", "w", encoding="utf-8") as f:
+        json.dump(embeddings, f)
+    print("[Cohere embeddings built and saved]")
+    return True
+
+# === AI Dispatch Functions ===
+def ai_search_dispatch(keyword, n_results, model_choice):
+    """Dispatch AI search to the selected backend."""
+    if model_choice == "local":
+        return ai_search(keyword, n_results=n_results)
+    elif model_choice == "openai":
+        return openai_ai_search(keyword, n_results)
+    elif model_choice == "cohere":
+        return cohere_ai_search(keyword, n_results)
+    else:
+        return []
+
+def ai_summarize_dispatch(text, model_choice):
+    """Dispatch summarization to the selected backend."""
+    if model_choice == "local":
+        try:
+            from ai_search import ai_engine
+            if hasattr(ai_engine, 'summarizer') and ai_engine.summarizer:
+                return ai_engine.summarizer(text[:2048], max_length=200, min_length=50, do_sample=False)[0]['summary_text']
+        except Exception as e:
+            print(f"[DEBUG] Local summarizer failed: {e}")
+        return text[:300]  # fallback
+    elif model_choice == "openai":
+        return openai_summarize(text)
+    elif model_choice == "cohere":
+        return cohere_summarize(text)
+    else:
+        return text[:300]
+
+# === External AI API stubs ===
+def openai_summarize(text):
+    try:
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return "[OpenAI API key not set]"
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Summarize the following text."},
+                {"role": "user", "content": text[:3000]}
+            ],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        result = response.choices[0].message.content
+        if result is None:
+            print(f"[OpenAI summarization failed: No content in response: {response}]")
+            return "[OpenAI summarization failed: No summary returned]"
+        return result.strip()
+    except Exception as e:
+        return f"[OpenAI summarization failed: {e}]"
+
+def cohere_summarize(text):
+    try:
+        import cohere
+        api_key = os.getenv("COHERE_API_KEY")
+        if not api_key:
+            return "[Cohere API key not set]"
+        co = cohere.Client(api_key)
+        response = co.summarize(text=text[:3000], model='summarize-xlarge', length='medium', format='paragraph')
+        return response.summary
+    except Exception as e:
+        return f"[Cohere summarization failed: {e}]"
+
+def openai_ai_search(keyword, n_results):
+    from openai import OpenAI
+    import numpy as np
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("[OpenAI API key not set]")
+        return []
+    client = OpenAI(api_key=api_key)
+    embeddings = load_embeddings("embeddings_openai.json")
+    if not embeddings:
+        print("[No OpenAI embeddings found. Run embedding build first]")
+        return []
+    # Embed the query
+    try:
+        resp = client.embeddings.create(input=keyword, model="text-embedding-ada-002")
+        query_emb = np.array(resp.data[0].embedding)
+    except Exception as e:
+        print(f"[OpenAI query embedding failed: {e}]")
+        return []
+    # Compute similarities
+    scored = []
+    for file_path, emb in embeddings.items():
+        emb_vec = np.array(emb)
+        sim = np.dot(query_emb, emb_vec) / (np.linalg.norm(query_emb) * np.linalg.norm(emb_vec) + 1e-8)
+        scored.append((file_path, sim))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    # Get file info for top-N
+    conn = sqlite3.connect(INDEX_DB, timeout=30)
+    c = conn.cursor()
+    results = []
+    for file_path, sim in scored[:n_results]:
+        c.execute('SELECT file_type, content FROM file_index WHERE file_path=?', (file_path,))
+        row = c.fetchone()
+        if row:
+            file_type, content = row
+            results.append({
+                'file_path': file_path,
+                'file_type': file_type,
+                'similarity_score': sim,
+                'content': content
+            })
+    conn.close()
+    return results
+
+def cohere_ai_search(keyword, n_results):
+    import cohere
+    import numpy as np
+    api_key = os.getenv("COHERE_API_KEY")
+    if not api_key:
+        print("[Cohere API key not set]")
+        return []
+    co = cohere.Client(api_key)
+    embeddings = load_embeddings("embeddings_cohere.json")
+    if not embeddings:
+        print("[No Cohere embeddings found. Run embedding build first]")
+        return []
+    # Embed the query
+    try:
+        resp = co.embed(texts=[keyword], model="embed-english-v3.0", input_type="search_query")
+        query_emb = np.array(resp.embeddings[0])
+    except Exception as e:
+        print(f"[Cohere query embedding failed: {e}]")
+        return []
+    # Compute similarities
+    scored = []
+    for file_path, emb in embeddings.items():
+        emb_vec = np.array(emb)
+        sim = np.dot(query_emb, emb_vec) / (np.linalg.norm(query_emb) * np.linalg.norm(emb_vec) + 1e-8)
+        scored.append((file_path, sim))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    # Get file info for top-N
+    conn = sqlite3.connect(INDEX_DB, timeout=30)
+    c = conn.cursor()
+    results = []
+    for file_path, sim in scored[:n_results]:
+        c.execute('SELECT file_type, content FROM file_index WHERE file_path=?', (file_path,))
+        row = c.fetchone()
+        if row:
+            file_type, content = row
+            results.append({
+                'file_path': file_path,
+                'file_type': file_type,
+                'similarity_score': sim,
+                'content': content
+            })
+    conn.close()
+    return results
+
+# Add these utility functions before their first use (before start_live_search, start_index_search, start_ai_search):
+def get_keyword_for_classic():
+    text = keyword_text.get("1.0", "end").strip()
+    return text.split("\n", 1)[0] if text else ""
+
+def get_keyword_for_ai():
+    return keyword_text.get("1.0", "end").strip()
 
 root.mainloop()

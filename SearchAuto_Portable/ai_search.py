@@ -8,11 +8,12 @@ import json
 import pickle
 from datetime import datetime
 import re
-from transformers import pipeline
+from transformers.pipelines import pipeline
+import sys
 
 class AISearchEngine:
     def __init__(self, db_path="ai_search_db"):
-        """Initialize AI search engine with SentenceTransformers and ChromaDB"""
+        """Initialize AI search engine with SentenceTransformer and ChromaDB"""
         self.db_path = db_path
         self.model = None
         self.client = None
@@ -20,11 +21,24 @@ class AISearchEngine:
         self.summarizer = None
         self.initialized = False
         
+        # Check if running as EXE
+        self.is_exe = getattr(sys, 'frozen', False)
+        if self.is_exe:
+            print("Running in EXE mode - using optimized AI settings")
+        
     def initialize(self):
         """Initialize the AI search components"""
         try:
             # Initialize SentenceTransformer model (MiniLM for speed)
             print("Loading AI model...")
+            
+            # Set model cache directory for EXE
+            if self.is_exe:
+                cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+                os.makedirs(cache_dir, exist_ok=True)
+                os.environ['HF_HOME'] = cache_dir
+                print(f"Using cache directory: {cache_dir}")
+            
             self.model = SentenceTransformer('all-MiniLM-L6-v2')
             
             # Initialize ChromaDB
@@ -40,9 +54,12 @@ class AISearchEngine:
             # Initialize summarizer for document summarization
             print("Loading summarization model...")
             try:
-                self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn", device=-1)
-            except:
-                print("Summarization model not available, continuing without it...")
+                # Use CPU for EXE to avoid CUDA issues
+                device = -1 if self.is_exe else 0
+                self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn", device=device)
+            except Exception as e:
+                print(f"Summarization model not available: {e}")
+                print("Continuing without summarization...")
                 self.summarizer = None
             
             self.initialized = True
@@ -85,19 +102,23 @@ class AISearchEngine:
                     })
             
             # Add to ChromaDB in smaller batches to avoid batch size errors
-            if ids:
-                batch_size = 1000  # Smaller batch size
+            if ids and self.collection:
+                batch_size = 100  # Much smaller batch size to avoid memory issues
                 for i in range(0, len(ids), batch_size):
                     batch_ids = ids[i:i+batch_size]
                     batch_texts = texts[i:i+batch_size]
                     batch_metadatas = metadatas[i:i+batch_size]
                     
-                    self.collection.add(
-                        documents=batch_texts,
-                        metadatas=batch_metadatas,
-                        ids=batch_ids
-                    )
-                    print(f"Added batch {i//batch_size + 1} ({len(batch_ids)} chunks)")
+                    try:
+                        self.collection.add(
+                            documents=batch_texts,
+                            metadatas=batch_metadatas,
+                            ids=batch_ids
+                        )
+                        print(f"Added batch {i//batch_size + 1} ({len(batch_ids)} chunks)")
+                    except Exception as batch_error:
+                        print(f"Error adding batch {i//batch_size + 1}: {batch_error}")
+                        continue
                 
                 print(f"Added {len(ids)} total document chunks to AI index")
                 return True
@@ -117,6 +138,10 @@ class AISearchEngine:
             enhanced_query = self._enhance_query(query)
             
             # Search in ChromaDB
+            if not self.collection:
+                print("AI collection not initialized")
+                return []
+                
             results = self.collection.query(
                 query_texts=[enhanced_query],
                 n_results=n_results
@@ -124,10 +149,14 @@ class AISearchEngine:
             
             # Process results
             processed_results = []
-            if results['documents'] and results['documents'][0]:
-                for i, doc in enumerate(results['documents'][0]):
-                    metadata = results['metadatas'][0][i]
-                    distance = results['distances'][0][i] if 'distances' in results else 0
+            if results and results.get('documents') and results['documents'][0]:
+                documents = results['documents'][0]
+                metadatas = results.get('metadatas', [[]])[0]
+                distances = results.get('distances', [[]])[0]
+                
+                for i, doc in enumerate(documents):
+                    metadata = metadatas[i] if i < len(metadatas) else {}
+                    distance = distances[i] if i < len(distances) else 0
                     
                     # Generate summary if summarizer is available
                     summary = None
@@ -222,7 +251,7 @@ class AISearchEngine:
             print(f"Error getting AI index stats: {e}")
             return {'total_documents': 0, 'index_size': '0 MB'}
     
-    def _split_content(self, content: str, max_chunk_size: int = 1000) -> List[str]:
+    def _split_content(self, content: str, max_chunk_size: int = 300) -> List[str]:
         """Split content into chunks for better semantic search"""
         if len(content) <= max_chunk_size:
             return [content]

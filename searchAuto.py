@@ -142,10 +142,15 @@ def extract_file_content(file_path):
     return ''
 
 def get_selected_roots():
-    selected = roots_listbox.curselection()
-    if selected:
-        return [roots_listbox.get(i) for i in selected]
-    else:
+    try:
+        # Try to access GUI elements if they exist
+        selected = roots_listbox.curselection()
+        if selected:
+            return [roots_listbox.get(i) for i in selected]
+        else:
+            return get_roots()
+    except (NameError, AttributeError):
+        # If GUI elements don't exist, return all roots
         return get_roots()
 
 def build_index_all():
@@ -230,20 +235,57 @@ def search_index(keyword):
     # Now open the DB connection
     conn = sqlite3.connect(INDEX_DB, timeout=30)
     c = conn.cursor()
-    if selected_roots and len(selected_roots) < len(all_roots):
-        placeholders = ','.join('?' for _ in selected_roots)
-        q = f"SELECT file_path, file_type, snippet(file_index, 3, '[', ']', '...', 20), root_path FROM file_index WHERE content MATCH ? AND root_path IN ({placeholders})"
-        c.execute(q, (keyword, *selected_roots))
+    
+    # Check if keyword contains non-Latin characters (like Chinese)
+    has_non_latin = any(ord(char) > 127 for char in keyword)
+    
+    if has_non_latin:
+        # For non-Latin characters, use LIKE search instead of FTS5
+        if selected_roots and len(selected_roots) < len(all_roots):
+            placeholders = ','.join('?' for _ in selected_roots)
+            q = f"SELECT file_path, file_type, content, root_path FROM file_index WHERE content LIKE ? AND root_path IN ({placeholders})"
+            c.execute(q, (f'%{keyword}%', *selected_roots))
+        else:
+            q = "SELECT file_path, file_type, content, root_path FROM file_index WHERE content LIKE ?"
+            c.execute(q, (f'%{keyword}%',))
+        
+        for file_path, file_type, content, root_path in c.fetchall():
+            # Find the position of the keyword in content
+            pos = content.lower().find(keyword.lower())
+            if pos >= 0:
+                # Create a snippet around the keyword
+                start = max(0, pos - 50)
+                end = min(len(content), pos + len(keyword) + 50)
+                snippet = content[start:end]
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(content):
+                    snippet = snippet + "..."
+                
+                results.append({
+                    "File Path": file_path,
+                    "File Type": file_type,
+                    "Location": f"Indexed ({root_path})",
+                    "Content": snippet
+                })
     else:
-        q = f"SELECT file_path, file_type, snippet(file_index, 3, '[', ']', '...', 20), root_path FROM file_index WHERE content MATCH ?"
-        c.execute(q, (keyword,))
-    for file_path, file_type, snippet_, root_path in c.fetchall():
-        results.append({
-            "File Path": file_path,
-            "File Type": file_type,
-            "Location": f"Indexed ({root_path})",
-            "Content": snippet_
-        })
+        # For Latin characters, use FTS5 search
+        if selected_roots and len(selected_roots) < len(all_roots):
+            placeholders = ','.join('?' for _ in selected_roots)
+            q = f"SELECT file_path, file_type, snippet(file_index, 3, '[', ']', '...', 20), root_path FROM file_index WHERE content MATCH ? AND root_path IN ({placeholders})"
+            c.execute(q, (keyword, *selected_roots))
+        else:
+            q = f"SELECT file_path, file_type, snippet(file_index, 3, '[', ']', '...', 20), root_path FROM file_index WHERE content MATCH ?"
+            c.execute(q, (keyword,))
+        
+        for file_path, file_type, snippet_, root_path in c.fetchall():
+            results.append({
+                "File Path": file_path,
+                "File Type": file_type,
+                "Location": f"Indexed ({root_path})",
+                "Content": snippet_
+            })
+    
     conn.close()
     return results
 
@@ -255,6 +297,7 @@ def search_txt(file_path, keyword, results):
             for i, line in enumerate(f, start=1):
                 if search_cancelled:
                     return
+                # Use case-insensitive search for both Latin and non-Latin characters
                 if keyword.lower() in line.lower():
                     results.append({
                         "File Path": file_path,
@@ -272,6 +315,7 @@ def search_md(file_path, keyword, results):
             for i, line in enumerate(f, start=1):
                 if search_cancelled:
                     return
+                # Use case-insensitive search for both Latin and non-Latin characters
                 if keyword.lower() in line.lower():
                     results.append({
                         "File Path": file_path,
@@ -289,6 +333,7 @@ def search_docx(file_path, keyword, results):
         for i, para in enumerate(doc.paragraphs, start=1):
             if search_cancelled:
                 return
+            # Use case-insensitive search for both Latin and non-Latin characters
             if keyword.lower() in para.text.lower():
                 results.append({
                     "File Path": file_path,
@@ -739,10 +784,32 @@ bundle_checkbox.pack(anchor="w", padx=5, pady=(5, 0))
 # Place these function definitions before embedding_section and its buttons
 
 def build_openai_embeddings_thread():
-    print("Build OpenAI Embeddings clicked")
+    """Threaded function to build OpenAI embeddings"""
+    def build_thread():
+        try:
+            result = build_openai_embeddings()
+            if result:
+                root.after(0, lambda: messagebox.showinfo("OpenAI Embeddings", "OpenAI embeddings built successfully!"))
+            else:
+                root.after(0, lambda: messagebox.showerror("OpenAI Embeddings", "Failed to build OpenAI embeddings. Check API key and indexed files."))
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("OpenAI Embeddings", f"Error: {e}"))
+    
+    threading.Thread(target=build_thread, daemon=True).start()
 
 def build_cohere_embeddings_thread():
-    print("Build Cohere Embeddings clicked")
+    """Threaded function to build Cohere embeddings"""
+    def build_thread():
+        try:
+            result = build_cohere_embeddings()
+            if result:
+                root.after(0, lambda: messagebox.showinfo("Cohere Embeddings", "Cohere embeddings built successfully!"))
+            else:
+                root.after(0, lambda: messagebox.showerror("Cohere Embeddings", "Failed to build Cohere embeddings. Check API key and indexed files."))
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("Cohere Embeddings", f"Error: {e}"))
+    
+    threading.Thread(target=build_thread, daemon=True).start()
 
 # Roots Management Frame (top, full width)
 roots_content_frame = tk.Frame(roots_frame)

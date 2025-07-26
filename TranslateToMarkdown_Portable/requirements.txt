@@ -1,0 +1,8 @@
+# Translation app dependencies
+python-docx>=0.8.11
+PyPDF2>=3.0.1
+googletrans==4.0.0-rc1
+deepl
+openai
+httpx==0.13.3
+httpcore==0.9.1 
